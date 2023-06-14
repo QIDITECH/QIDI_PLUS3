@@ -1,0 +1,4 @@
+[version]
+mcu             = V0.10.0
+ui              = V4.2.0
+soc             = V4.2.0
