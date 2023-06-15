@@ -10,7 +10,7 @@ QIDI provides a packaged version file in the version bar next to it. Please down
 #### Packaged files
 1. Prepare a blank named USB drive.Please ensure that the device name of the USB drive is empty
 <p align="left"><img src="other/blankname.png" height="360" alt="sample"></p>
-2. Select the latest version in the version release bar next to it, download the compressed file package starting with SMART and extract it locally.<a href="https://github.com/QIDITECH/QIDI_PLUS3/releases/tag/Plus3_V4.2.0"></a>
+2. Select the latest version in the version release bar next to it, download the compressed file package starting with SMART and extract it locally.<a href="https://github.com/QIDITECH/QIDI_PLUS3/releases/tag/Plus3_V4.2.0">Jump link</a>
 3. Place the files in the USB drive, such as
 
 <p align="left"><img src="other/sample.png" height="240" alt="sample"></p>
