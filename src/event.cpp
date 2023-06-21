@@ -1206,19 +1206,19 @@ void refresh_page_set_zoffset() {
         send_cmd_txt(tty_fd, "b20", temp[14]);
         send_cmd_txt(tty_fd, "b21", temp[15]);
         */
-        //2.1.2 CLL 修改调平数据显示为至多16个
-        std::string temp[4][4];
+        //4.2.2 CLL 修改调平数据显示为至多36个
+        std::string temp[6][6];
         for (int i = 0; i < printer_bed_mesh_profiles_mks_mesh_params_y_count; i++) {
-        if (i == 4) {
+        if (i == 6) {
             break;
         }
         for (int j = 0; j < printer_bed_mesh_profiles_mks_mesh_params_x_count; j++) {
-            if (j == 4) {
+            if (j == 6) {
                 break;
             }
             temp[i][j] = std::to_string(printer_bed_mesh_profiles_mks_points[i][j]);
-            temp[i][j] = temp[i][j].substr(0, temp[i][j].find(".") + 4);
-            send_cmd_txt(tty_fd,"t"+std::to_string(i * 4 + j),temp[i][j]);
+            temp[i][j] = temp[i][j].substr(0, temp[i][j].find(".") + 3);
+            send_cmd_txt(tty_fd,"t"+std::to_string(i * 6 + j),temp[i][j]);
         }
     }
         //fresh_page_set_zoffset_data = true;
@@ -1724,7 +1724,7 @@ void refresh_page_printing_zoffset() {
 
     //2023.4.20 网页暂停开始与UI相匹配
     if (printer_print_stats_state == "paused") {
-        if (printer_ready = true) {
+        if (printer_ready == true) {
             page_to(TJC_PAGE_PRINT_FILAMENT);
             printer_ready = false;
         }
@@ -1940,23 +1940,25 @@ void refresh_page_printing() {
         }
     } else {
         if (printer_pause_resume_is_paused == false) {
-            send_cmd_picc(tty_fd, "b9", "41");
-            send_cmd_picc2(tty_fd, "b9", "41");
+            send_cmd_picc(tty_fd, "b10", "41");
+            send_cmd_picc2(tty_fd, "b10", "41");
         } else {
-            send_cmd_picc(tty_fd, "b9", "42");
-            send_cmd_picc2(tty_fd, "b9", "42");
+            send_cmd_picc(tty_fd, "b10", "42");
+            send_cmd_picc2(tty_fd, "b10", "42");
         }
     }
 
     //2023.5.11 CLL 修复页面反复跳转bug
     if (printer_print_stats_state == "printing") {
-        printer_ready = false;
+        printer_ready = true;
     }
 
     //2023.4.20 网页暂停开始与UI相匹配
     if (printer_print_stats_state == "paused") {
-        page_to(TJC_PAGE_PRINT_FILAMENT);
-        printer_ready = true;
+        if (printer_ready == true) {
+            page_to(TJC_PAGE_PRINT_FILAMENT);
+            printer_ready = false;
+        }
     }
 
     if (printer_print_stats_state == "complete") {
@@ -2536,8 +2538,6 @@ void start_auto_level() {
         // ep->Send(json_run_a_gcode("G29\n"));
         // ep->Send(json_run_a_gcode("ACCEPT\nBED_MESH_CALIBRATE\nBED_MESH_PROFILE SAVE=\"name\"\n"));
         // ep->Send(json_run_a_gcode("ACCEPT\nBED_MESH_CALIBRATE\nBED_MESH_PROFILE SAVE=\"name\"\nSAVE_CONFIG\n"));
-        //2.1.2 CLL 新增开机调平完成后移动至0点
-        ep->Send(json_run_a_gcode("G0 X0 Y0 Z50 F1200\n"));
         auto_level_enabled = true;
     }
 }
@@ -2557,11 +2557,13 @@ void start_manual_level() {
 
 /* 完成自动调平 */
 void finish_auto_level() {
-    if ( auto_level_finished == false ) {
+    //4.2.2 CLL 修复卡在自动调平完成页面
+    if ( auto_level_finished == false ||printer_idle_timeout_state == "Idle") {
         //2023.4.20 修改调平流程
         // ep->Send(json_run_a_gcode("G1 X0 Y0 F6000\nSAVE_CONFIG\n"));
         // ep->Send(json_run_a_gcode("G1 X0 Y0 F6000\nG91\nG1 Z200\nG90\nM1029\nSAVE_CONFIG"));
-        ep->Send(json_run_a_gcode("G0 X0 Y0 Z50 F5000\nM1029\nSAVE_CONFIG"));
+        //4.2.2 CLL 修改自动调平完成移动平台
+        ep->Send(json_run_a_gcode("G0 Z50 F600\nG1 X0 Y0 G9000\nM1029\nSAVE_CONFIG"));
         // ep->Send(json_run_a_gcode("SAVE_CONFIG\nBED_MESH_PROFILE LOAD=\"name\"\n"));
         all_level_saving = false;
         // sleep(7);
@@ -3794,4 +3796,17 @@ void refresh_page_preview_pop() {
             clear_page_printing_arg();
         }
     }
+}
+
+//4.2.1 CLL 修复无法读取文件名中带空格文件
+std::string replaceCharacters(const std::string& path, const std::string& searchChars, const std::string& replacement) {
+    std::string result = path;
+    for (char c : searchChars) {
+        std::size_t found = result.find(c);
+        while (found != std::string::npos) {
+            result.replace(found, 1, replacement);
+            found = result.find(c, found + replacement.length());
+        }
+    }
+    return result;
 }

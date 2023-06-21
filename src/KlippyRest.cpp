@@ -1,5 +1,6 @@
 #include "../include/KlippyRest.h"
 #include "../include/mks_log.h"
+#include "../include/event.h"
 
 std::string server_files_metadata(std::string ip, std::string port, std::string filename) {
     return send_request(ip, port, "server/files/metadata?filename=" + filename, "GET");
@@ -64,10 +65,15 @@ std::string get_thumbnail_stream(std::string ip, std::string port, std::string t
 std::string send_request(std::string ip, std::string port, std::string method, std::string request_type) {
     std::string url = "http://" + ip + ":" + port + "/" + method;
     std::string str_response = "";
-    MKSLOG_BLUE("Sending request to %s", url.data());
+
+    //4.2.1 CLL 修复无法读取文件名中带空格文件
+    url=replaceCharacters(url," ","%20");
+
+    std::string encode_url = url_encode(url);
+    MKSLOG_BLUE("Sending request to %s", encode_url.data());
     try
     {
-        http::Request request{url};
+        http::Request request{encode_url};
         struct http::Response response = request.send(request_type);
         str_response = std::string{response.body.begin(), response.body.end()};
     }
@@ -76,6 +82,18 @@ std::string send_request(std::string ip, std::string port, std::string method, s
         std::cerr << "Request failed, error" << e.what() << '\n';
     }
     return str_response;
+}
+
+std::string url_encode(const std::string& url) {
+    std::string encoded_url;
+    for (char c : url) {
+        if (c == ' ') {
+            encoded_url += "%20";
+        } else {
+            encoded_url += c;
+        }
+    }
+    return encoded_url;
 }
 
 /* 

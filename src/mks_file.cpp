@@ -181,6 +181,7 @@ void parse_file_delete(nlohmann::json result) {
 
 // 获取文件列表信息
 void get_page_files_filelist(std::string current_dir) {
+    MKSLOG_BLUE("%s",current_dir.c_str());
     if (page_files_last_printing_files_dir == current_dir) {
         page_files_is_last_print_files_dir = true;
     } else {
