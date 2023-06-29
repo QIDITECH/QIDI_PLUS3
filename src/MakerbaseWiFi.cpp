@@ -83,10 +83,12 @@ void set_page_wifi_ssid_list(int pages) {
 void get_ssid_list_pages() {
     if (result_list.size() % 5 == 0) {
         // page_wifi_ssid_list_pages = result_list.size() / 5 - 1;
-        page_wifi_ssid_list_pages = ssid_list.size() / 5 - 1;
+        //pwtest:
+        page_wifi_ssid_list_pages = ssid_list.size() / 5 ;
     } else {
         // page_wifi_ssid_list_pages = result_list.size() / 5;
-        page_wifi_ssid_list_pages = ssid_list.size() / 5;
+        //pwtest:
+        page_wifi_ssid_list_pages = ssid_list.size() / 5 + 1;
     }
     // std::cout << "页面数 = " << page_wifi_ssid_list_pages << std::endl;
 

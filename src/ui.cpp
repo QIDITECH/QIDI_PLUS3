@@ -2003,10 +2003,10 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_WIFI_LIST_2_REFRESH:
             std::cout << "################## 按下刷新按钮" << std::endl;
             scan_ssid_and_show();
-            //2.1.2 CLL 修复wifi页面bug
-            std::cout << "等待延时测试3s..." << std::endl;
-            sleep(3);
-            scan_ssid_and_show();
+            //pwtest:删除等待延时
+            //std::cout << "等待延时测试3s..." << std::endl;
+            //sleep(3);
+            //scan_ssid_and_show();
             break;
 
         case TJC_PAGE_WIFI_LIST_2_EHTNET:
@@ -2951,6 +2951,10 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_WIFI_SUCCESS_YES:
             wifi_save_config();
             // page_to(TJC_PAGE_WIFI_SAVE);
+            system("dhcpcd wlan0");
+            mks_wpa_cli_close_connection();
+            go_to_network();
+            scan_ssid_and_show();
             break;
 
         default:
@@ -2963,6 +2967,10 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         {
         case TJC_PAGE_WIFI_FAILED_YES:
             page_to(TJC_PAGE_WIFI_LIST_2);
+            //pwtest:增加正常退出显示
+            set_page_wifi_ssid_list(page_wifi_current_pages);
+            get_wlan0_status();
+            refresh_page_wifi_list();
             break;
 
         default:
@@ -3026,6 +3034,9 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_WIFI_KEYBOARD_BACK:
             page_to(TJC_PAGE_WIFI_LIST_2);
             printing_wifi_keyboard_enabled = false;
+            //pwtest:增加正常退出显示
+            set_page_wifi_ssid_list(page_wifi_current_pages);
+            refresh_page_wifi_list();
             break;
 
         case TJC_PAGE_WIFI_KEYBOARD_ENTER:

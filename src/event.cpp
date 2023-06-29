@@ -941,6 +941,8 @@ void refresh_page_saving() {
 }
 
 void refresh_page_wifi_list_2() {
+    //pwtest:加入循环
+    mks_wpa_scan_scanresults();
     if (printing_wifi_keyboard_enabled == false) {
         send_cmd_txt(tty_fd, "t0", status_result.ip_address);
         // std::cout << "Status_result Wpa_state" << status_result.wpa_state << std::endl;
@@ -954,6 +956,8 @@ void refresh_page_wifi_list_2() {
     } else {
         send_cmd_txt(tty_fd, "t0", get_wifi_name);
     }
+    //pwtest:增加延时
+    sleep(10);
 }
 
 void refresh_page_syntony_finish() {
@@ -3079,7 +3083,7 @@ void go_to_about() {
         page_to(TJC_PAGE_NO_UPDATA);
     }
 }
-
+//pwtest:入口
 void go_to_network() {
     if (!get_mks_net_status()) {
         mks_wpa_cli_open_connection();
@@ -3091,8 +3095,11 @@ void go_to_network() {
         page_wifi_ssid_list_pages = 0;
         page_wifi_current_pages = 0;
         page_to(TJC_PAGE_WIFI_LIST_2);
-        send_cmd_txt(tty_fd, "t0", get_wlan0_ip().data());
+        //pwtest:get_wlan0_status中会获取IP，不需要重复获取
+        //send_cmd_txt(tty_fd, "t0", get_wlan0_ip().data());
         get_wlan0_status();
+        //pwtest:
+        scan_ssid_and_show();
         if (strcmp(status_result.wpa_state, "COMPLETED") == 0) {
             current_connected_ssid_name = status_result.ssid;       // 如果已经连接wifi，获取wifi的名字
         } else if (strcmp(status_result.wpa_state, "INACTIVE")) {
