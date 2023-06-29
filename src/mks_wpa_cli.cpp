@@ -122,7 +122,7 @@ int mks_wifi_run_cmd(char const *cmd, char *result, size_t *len) {
     int ret = wpa_ctrl_request(wpa_ctrl, cmd, strlen(cmd), result, len, 0);
     result[*len] = 0;
     //pwtest:这里取消关闭端口
-    //wpa_ctrl_close(wpa_ctrl);
+    wpa_ctrl_close(wpa_ctrl);
 
     return ret;
 }
