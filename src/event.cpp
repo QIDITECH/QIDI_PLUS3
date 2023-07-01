@@ -941,8 +941,6 @@ void refresh_page_saving() {
 }
 
 void refresh_page_wifi_list_2() {
-    //pwtest:加入循环
-    mks_wpa_scan_scanresults();
     if (printing_wifi_keyboard_enabled == false) {
         send_cmd_txt(tty_fd, "t0", status_result.ip_address);
         // std::cout << "Status_result Wpa_state" << status_result.wpa_state << std::endl;
@@ -956,8 +954,6 @@ void refresh_page_wifi_list_2() {
     } else {
         send_cmd_txt(tty_fd, "t0", get_wifi_name);
     }
-    //pwtest:增加延时
-    sleep(10);
 }
 
 void refresh_page_syntony_finish() {
