@@ -118,6 +118,10 @@ bool printer_bed_leveling_state;
 extern bool printer_ready;
 extern std::string printer_webhooks_state;
 
+//4.2.3 CLL 耗材确认弹窗新增不再提示按钮
+bool preview_pop_1_on = true;
+bool preview_pop_2_on = true;
+
 void parse_cmd_msg_from_tjc_screen(char *cmd) {
     event_id = cmd[0];
     MKSLOG_BLUE("#########################%s", cmd);
@@ -2003,7 +2007,7 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_WIFI_LIST_2_REFRESH:
             std::cout << "################## 按下刷新按钮" << std::endl;
             scan_ssid_and_show();
-            //pwtest:删除等待延时
+            //4.2.3 CLL 修复WiFi刷新bug
             //std::cout << "等待延时测试3s..." << std::endl;
             //sleep(3);
             //scan_ssid_and_show();
@@ -2693,6 +2697,8 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_STOP_PRINT_YES:
             // if (start_to_printing == false) {
                 // start_to_printing = true;
+                //4.2.3 CLL 修复在打印暂停界面取消打印后仍显示加热
+                printer_idle_timeout_state = "Printing";
                 page_to(TJC_PAGE_STOPPING);
                 cancel_print();
                 // get_total_time();
@@ -2951,6 +2957,7 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_WIFI_SUCCESS_YES:
             wifi_save_config();
             // page_to(TJC_PAGE_WIFI_SAVE);
+            //4.2.3 CLL 修复WiFi刷新bug
             system("dhcpcd wlan0");
             mks_wpa_cli_close_connection();
             go_to_network();
@@ -2967,10 +2974,13 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         {
         case TJC_PAGE_WIFI_FAILED_YES:
             page_to(TJC_PAGE_WIFI_LIST_2);
-            //pwtest:增加正常退出显示
-            set_page_wifi_ssid_list(page_wifi_current_pages);
-            get_wlan0_status();
-            refresh_page_wifi_list();
+            //4.2.3 CLL 修复WiFi刷新bug
+            //set_page_wifi_ssid_list(page_wifi_current_pages);
+            //get_wlan0_status();
+            //refresh_page_wifi_list();
+			mks_wpa_cli_close_connection();
+			go_to_network();
+			scan_ssid_and_show();
             break;
 
         default:
@@ -3034,7 +3044,7 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_WIFI_KEYBOARD_BACK:
             page_to(TJC_PAGE_WIFI_LIST_2);
             printing_wifi_keyboard_enabled = false;
-            //pwtest:增加正常退出显示
+            //4.2.3 CLL 修复WiFi刷新bug
             set_page_wifi_ssid_list(page_wifi_current_pages);
             refresh_page_wifi_list();
             break;
@@ -3218,6 +3228,15 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_PREVIEW_POP_YES:
             page_to(TJC_PAGE_PRINTING);
             break;
+        
+        //4.2.3 CLL 耗材确认弹窗新增不再提示按钮
+        case TJC_PAGE_PREVIEW_POP_NO_POP:
+            if (current_page_id == TJC_PAGE_PREVIEW_POP_1) {
+                preview_pop_1_on = false;
+            } else if (current_page_id == TJC_PAGE_PREVIEW_POP_2) {
+                preview_pop_2_on = false;
+            }
+            page_to(TJC_PAGE_PRINTING);
         }
 
     default:

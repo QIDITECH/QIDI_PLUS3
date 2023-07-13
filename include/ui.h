@@ -654,7 +654,9 @@
 //2.1.2 CLL 打印前判断耗材种类并弹窗
 #define TJC_PAGE_PREVIEW_POP_1             112
 #define TJC_PAGE_PREVIEW_POP_2             113
-#define TJC_PAGE_PREVIEW_POP_YES         0x00
+#define TJC_PAGE_PREVIEW_POP_YES           0x00
+//4.2.3 CLL 耗材确认弹窗新增不再提示按钮
+#define TJC_PAGE_PREVIEW_POP_NO_POP        0x01
 
 #endif
 
