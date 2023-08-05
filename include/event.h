@@ -241,6 +241,9 @@ void refresh_page_unloading();
 
 void refresh_page_preview_pop();
 
+//4.2.5 CLL 修复UI按下效果
+void refresh_page_open_level();
+
 //4.2.1 CLL 修复无法读取文件名中有空格文件
 std::string replaceCharacters(const std::string& path, const std::string& searchChars, const std::string& replacement);
 

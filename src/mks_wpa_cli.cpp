@@ -382,6 +382,9 @@ void test_wifi_run_cmd_status(void) {
 // }
 
 void *mks_wifi_hdlevent_thread(void *arg) {
+    //4.2.4 CLL 修复WiFi
+    int flag=0;
+    int t=0;
     char path[64] = {"\0"};
     sprintf(path, "/var/run/wpa_supplicant/wlan0");
 
@@ -434,6 +437,11 @@ void *mks_wifi_hdlevent_thread(void *arg) {
                     }
                 } else if (strstr(buf, WPS_EVENT_AP_AVAILABLE) != NULL) {
                     MKSLOG("Available WPS AP found in scan results.");
+                    //4.2.4 CLL 修复WiFi
+                    if (current_page_id == TJC_PAGE_WIFI_CONNECT&&flag==0){     //pwtest:在flag为0且在连接界面时，执行网络选择，且将flag置为2特殊状态值
+                        system("wpa_cli select_network 0");
+                        flag=2;
+                    }
                 } else if (strstr(buf, "pre-shared key may be incorrect") != NULL) {
                     if (current_page_id == TJC_PAGE_WIFI_CONNECT) {
                         page_to(TJC_PAGE_WIFI_FAILED);
@@ -441,9 +449,23 @@ void *mks_wifi_hdlevent_thread(void *arg) {
                 } else if (strstr(buf, "CONN_FAILED") != NULL || strstr(buf, "timed out") != NULL) { //4.2.3 CLL 修复WiFi刷新bug
                     if (current_page_id == TJC_PAGE_WIFI_CONNECT) {
                         page_to(TJC_PAGE_WIFI_FAILED);
+                        //4.2.4 CLL 修复WiFi
+                        flag=0;
+                        t=0;
                     }
                 } else if (strstr(buf, "Associated with") != NULL) {
                     MKSLOG_RED("握手握手握手");
+                    flag=1;
+                    t=0;
+                } else if (strstr(buf,"NETWORK-NOT-FOUND") && current_page_id == TJC_PAGE_WIFI_CONNECT && flag==2) { //4.2.4 CLL 修复WiFi
+                    if (t<3)          //pwtest:t随循环次数增加，限制要小于3
+                        t++;
+                    else if (t==3) {        //pwtest:当字段记录的整型变量t==3时，认为网络无法找到，判断为连接失败
+                        page_to(TJC_PAGE_WIFI_FAILED);
+                        system("wpa_cli disable_network 0");    //判断失败后再取消这个连接，可以让端口取消持续的连接指令
+                        flag=0;
+                        t=0;
+                    }
                 }//else if (strstr(buf, "EVENT-BSS-REMOVED") != NULL)
                  //   {
                  //       pwtest:防止端口繁忙
@@ -768,6 +790,18 @@ int mks_set_psk(char *psk) {
             // mks_disable_network();
             system("ifconfig wlan0 down");
             system("ifconfig wlan0 up");
+            
+            //4.2.4 CLL 修复WiFi
+            system("wpa_cli reassociate");      //pwtest:设备重启后强制重连，重新扫描一次
+            //pwtest:以下代码块仅在端口打开超时时做判断，测试阶段
+            if ( mks_enable_network()==-2 && current_page_id == TJC_PAGE_WIFI_CONNECT) {    //如果端口超时会直接到失败界面
+                page_to(TJC_PAGE_WIFI_FAILED);
+            }
+            else {
+                MKSLOG_RED("判断成功");
+            }
+            return ret;
+
             // sleep(2);
             // mks_enable_network();
             return ret;
@@ -864,6 +898,8 @@ int mks_enable_network() {
         return ret;
     } else if (ret < 0) {
         MKSLOG_RED("Command failed.");
+        //4.2.4 CLL 修复WiFi
+        return ret;
         // wpa_ctrl_close(ctrl_conn);
     } else if (ret == 0) {
         replyBuff[reply_len] = '\0';
