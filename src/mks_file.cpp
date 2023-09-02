@@ -83,6 +83,8 @@ extern bool show_preview_complete;
 //2.1.2 CLL 预览图界面按下返回键后返回至进入时页面
 extern int current_page_id;
 
+extern bool jump_to_print;
+
 void parse_file_estimated_time(nlohmann::json response) {
     if (response["result"]["estimated_time"] != nlohmann::detail::value_t::null) {
         file_metadata_estimated_time = (float)response["result"]["estimated_time"];
@@ -338,6 +340,7 @@ void get_sub_dir_files_list(int button) {
         refresh_page_files(page_files_current_pages);
         refresh_page_files_list_2();
     } else if ("[f]" == page_files_list_show_type[button]) {
+        jump_to_print = false;
         show_preview_complete = false;
         // sdcard_reset_file();
         page_files_path_stack.push(page_files_path);
@@ -351,6 +354,7 @@ void get_sub_dir_files_list(int button) {
         // generate_gimage(page_files_print_files_path);
         // generate_simage(page_files_print_files_path);
     } else if ("[c]" == page_files_list_show_type[button]) { //4.2.5 CLL 新增打印过文件会在文件列表第一页首个显示
+        jump_to_print = false;
         show_preview_complete = false;
         page_files_path_stack.push(page_files_path);
         page_files_print_files_path =page_files_path + "/.cache/" + page_files_list_show_name[button];
