@@ -6,9 +6,20 @@ QIDI_PLUS3 is a server-side software that interacts with the screen in the Plus3
 
 QIDI provides a packaged version file in the version bar next to it. Please download the compressed package file starting with PLUS.  
 We have provided multiple different versions of source code. Please select the branch you want to download, and the name of the branch is the corresponding version name.
+## 4.2.10 Update content
+1.Optimized the logic of material breakage detection
 
+2.Optimized page jump logic after resonance
+
+3.Added the function of exporting logs
+
+4.Revise and reset the factory settings function
+
+5.Adjusted the rising distance during boot up guidance
 ## Detailed update process
 #### Packaged files
+Note that all updates cannot be updated from higher versions  
+
 1. Prepare a blank named USB drive.Please ensure that the device name of the USB drive is empty
 
 <p align="left"><img src="other/blankname.png" height="360" alt="sample"></p>
