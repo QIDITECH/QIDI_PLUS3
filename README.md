@@ -18,19 +18,17 @@ We have provided multiple different versions of source code. Please select the b
 5.Adjusted the rising distance during boot up guidance
 ## Detailed update process
 #### Packaged files
-Note that all updates cannot be updated from higher versions  
 
-1. Prepare a blank named USB drive.Please ensure that the device name of the USB drive is empty
+Note that all updates can not be updated from higher versions  
 
-<p align="left"><img src="other/blankname.png" height="360" alt="sample"></p>
 
-2. Select the latest version in the version release bar next to it, download the compressed file package starting with PLUS and extract it locally.<a href="https://github.com/QIDITECH/QIDI_PLUS3/releases">Jump link</a>
+1. Select the latest version in the version release bar next to it, download the compressed file package starting with PLUS and extract it locally.<a href="https://github.com/QIDITECH/QIDI_PLUS3/releases">Jump link</a>
 
-3. Place the files in the USB drive, such as
+2. Place the files in the USB drive, such as
 
 <p align="left"><img src="other/sample.png" height="240" alt="sample"></p>
 
-4. Insert the USB drive into the machine's USB interface, and an update prompt will appear on the version information interface. Click the update button to restart according to the prompt.
+3. Insert the USB drive into the machine's USB interface, and an update prompt will appear on the version information interface. Click the update button to restart according to the prompt.
 
 
 
