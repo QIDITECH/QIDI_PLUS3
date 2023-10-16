@@ -745,7 +745,7 @@ void refresh_page_open_syntony() {
     if ((printer_idle_timeout_state == "Ready")) {
         page_to(TJC_PAGE_SAVING_2);
         //2023.5.8 开机共振后移动50mm
-        ep->Send(json_run_a_gcode("G1 Z50 F600"));
+        //ep->Send(json_run_a_gcode("G1 Z50 F600"));
     }
 }
 
@@ -3870,7 +3870,7 @@ void open_more_level_finish() {
 }
 
 void open_down_50() {
-    ep->Send(json_run_a_gcode("G91\nG1 Z50\nG90"));
+    ep->Send(json_run_a_gcode("G28 Z\nG1 Z50\n"));
 }
 
 void close_mcu_port() {
