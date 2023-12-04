@@ -34,7 +34,7 @@ std::string delete_file_delete(std::string ip, std::string port, std::string fil
 std::string get_thumbnail_stream(std::string ip, std::string port, std::string thumbnail);
 std::string send_request(std::string ip, std::string port, std::string method, std::string request_type);
 
-
+std::string url_encode(const std::string& url);
 
 // std::string send_post_request(std::string ip, std::string port, std::string method);
 

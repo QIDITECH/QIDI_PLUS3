@@ -50,7 +50,30 @@ bool find_screen_tft_file = false;
 int main(int argc, char** argv) {
 
 
+	DIR *dir;
+	struct dirent *entry;
+
+	dir = opendir("/dev");
+
+	if (dir == NULL) {
+		perror("无法打开目录 /dev");
+	}
+
+	while ((entry = readdir(dir))) {
+		if (strstr(entry->d_name, "/dev/sd") == entry->d_name) {
+			if (strlen(entry->d_name) >= 8) {
+				char *partition_suffix = entry->d_name + 7;
+				if (partition_suffix[1] == '1') {
+					char command[256];
+                    snprintf(command, sizeof(command), "/usr/bin/systemctl --no-block restart makerbase-automount@%s.service", partition_suffix);
+					system(command);
+				}
+			}
+		}
+	}
+
 	// getIPAddress();
+	/*
 	if (access("/dev/sda", F_OK) == 0) {
 		if (access("/dev/sda1", F_OK) == 0) {
 			if (access("/home/mks/gcode_files/sda1", F_OK) != 0) {
@@ -58,6 +81,7 @@ int main(int argc, char** argv) {
 			}
 		}
     }
+	*/
 
     if (access("/home/mks/gcode_files/sda1/mksscreen.recovery", F_OK) == 0) {
         system("cp /home/mks/gcode_files/sda1/mksscreen.recovery /root/800_480.tft; sync");
@@ -74,7 +98,7 @@ int main(int argc, char** argv) {
 		find_screen_tft_file = false;
 		MKSLOG_BLUE("没有找到tft升级文件");
 	}
-	
+	/*
 	if (set_GPIO1_C5_high() == 0) {
 		MKSLOG("GPIO1_C5拉高成功");
 	} else {
@@ -92,21 +116,21 @@ int main(int argc, char** argv) {
 	} else {
 		MKSLOG("GPIO1_C3初始化失败");
 	}
-
+	*/
 	if (find_screen_tft_file == true) {
 		system("/root/uart; mv /root/800_480.tft /root/800_480.tft.bak");
 		// system("mv /root/800_480.tft /root/800_480.tft.bak");
 		find_screen_tft_file = false;
 	}
 
-	pthread_t monitor_thread;
-	pthread_t monitor_C3_thread;
+	// pthread_t monitor_thread;
+	// pthread_t monitor_C3_thread;
 	pthread_t wpa_recv_thread;
 
 	// pthread_t test_thread;
 
-	pthread_create(&monitor_thread, NULL, monitor_GPIO1_B2, NULL);
-	pthread_create(&monitor_C3_thread, NULL, monitor_GPIO1_C3, NULL);
+	// pthread_create(&monitor_thread, NULL, monitor_GPIO1_B2, NULL);
+	// pthread_create(&monitor_C3_thread, NULL, monitor_GPIO1_C3, NULL);
 	pthread_create(&wpa_recv_thread, NULL, mks_wifi_hdlevent_thread, NULL);
 
 	// mks_wifi_scan_scan_result();
@@ -233,11 +257,12 @@ int main(int argc, char** argv) {
 				
 				page_to(current_page_id);
 
+                //4.2.1 CLL 修复开机读取不到参数
 				get_total_time();
-				sleep(1);
+				sleep(2);
 				sub_object_status();									// 订阅相关的参数
 
-				sleep(1);
+				sleep(2);
 
 				get_object_status();									// 主动获取必备的参数
 				sleep(2);
