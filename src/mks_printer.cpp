@@ -115,7 +115,8 @@ bool manual_level_finished = false;
 
 float printer_bed_mesh_mesh_min[2] = {0.0, 0.0};
 float printer_bed_mesh_mesh_max[2] = {0.0, 0.0};
-float printer_bed_mesh_profiles_mks_points[4][4] = {0.0};
+//4.2.2 CLL 调平数据显示最多36个点
+float printer_bed_mesh_profiles_mks_points[6][6] = {0.0};
 float printer_bed_mesh_profiles_mks_mesh_params_tension = 0.0;
 float printer_bed_mesh_profiles_mks_mesh_params_mesh_x_pps = 0;
 std::string printer_bed_mesh_profiles_mks_mesh_params_algo = "";
@@ -251,7 +252,7 @@ void parse_printer_out_pin_fan3(nlohmann::json out_pin_fan3) {
     if (out_pin_fan3["value"] != nlohmann::detail::value_t::null) {
         printer_out_pin_fan3_value = out_pin_fan3["value"];
     }
-    std::cout << "printer_out_pin_fan3_value" << printer_out_pin_fan3_value <<std::endl;
+    std::cout << "printer_out_pin_fan3_value " << printer_out_pin_fan3_value <<std::endl;
 };
 
 void parse_filament_switch_sensor_fila(nlohmann::json filament_switch_sensor) {
@@ -339,16 +340,16 @@ void parse_bed_mesh(nlohmann::json bed_mesh) {
                 if (bed_mesh["profiles"]["default"]["mesh_params"]["max_y"] != nlohmann::detail::value_t::null) {
                     printer_bed_mesh_profiles_mks_mesh_params_max_y = bed_mesh["profiles"]["default"]["mesh_params"]["max_y"];
                 }
-                //2.1.2 CLL 调平数据显示至多16个点
+                //4.2.2 CLL 调平数据显示至多36个点
                 for (int i = 0; i < printer_bed_mesh_profiles_mks_mesh_params_y_count; i++) {
-                    if (i == 4) {
+                    if (i == 6) {
                         break;
                     }
                     for (int j = 0; j < printer_bed_mesh_profiles_mks_mesh_params_x_count; j++) {
-                        if (j == 4) {
+                        if (j == 6) {
                             break;
                         }
-                        printer_bed_mesh_profiles_mks_points[i][j] = bed_mesh["profiles"]["default"]["points"][i][j];
+                            printer_bed_mesh_profiles_mks_points[i][j] = bed_mesh["profiles"]["default"]["points"][i][j];
                     }
                 }
             }
@@ -511,8 +512,9 @@ void parse_subscribe_objects_status(nlohmann::json status) {
     if (status["bed_mesh"] != nlohmann::detail::value_t::null) {
         std::cout << status["bed_mesh"] << std::endl;
         parse_bed_mesh(status["bed_mesh"]);
-        for (int i = 0; i < 4; i++) {
-            for (int j = 0; j < 4; j++) {
+        //4.2.2 CLL 调平数据显示最多36个点
+        for (int i = 0; i < 6; i++) {
+            for (int j = 0; j < 6; j++) {
                 std::cout << "############# Points :" << i << ", " << j << " " << printer_bed_mesh_profiles_mks_points[i][j] << std::endl;
             }
         }

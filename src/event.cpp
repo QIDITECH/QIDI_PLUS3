@@ -314,7 +314,7 @@ std::string temp_idle_state = "";
 extern std::string mks_page_internet_ip;
 
 //2023.4.20 打印过文件标红
-extern std::string printed_file_path;
+//extern std::string printed_file_path;
 
 //2023.4.27 使网页打印显示预览图
 bool jump_to_print = false;
@@ -330,6 +330,22 @@ bool printer_ready = false;
 
 //2.1.2 CLL 新增热床调平
 extern bool printer_bed_leveling_state;
+
+//4.2.3 CLL 耗材确认弹窗新增不再提示按钮
+extern bool preview_pop_1_on;
+extern bool preview_pop_2_on;
+
+//4.2.4 CLL 修复断料检测与退料冲突bug
+bool previous_filament_sensor_state = false;
+
+//4.2.4 CLL 修改调平
+std::string previous_zoffset;
+
+//4.2.5 CLL 新增息屏功能
+extern bool previous_caselight_value;
+
+extern int load_target;
+extern bool load_mode;
 
 /* 更新页面处理 */
 void refresh_page_show() {
@@ -373,15 +389,35 @@ void refresh_page_show() {
             // MKSLOG_BLUE("来到这个地方, # %s", printer_print_stats_filename.data());
             if (printer_print_stats_state == "printing") {
                 if (printer_print_stats_filename != "") {
+                    sleep(5);
+                    //4.2.10 CLL 修改断料检测开关逻辑
+                    if (mks_fila_status == true) {
+                        filament_sensor_switch(true);
+                    }
                     MKSLOG_BLUE("跳入到打印函数\n");
-                    if (level_mode_printing_is_printing_level == false) {
-                        //2023.4.27 使网页打印显示预览图
+                    //4.2.5 CLL 新增息屏功能
+                    if (previous_caselight_value == true) {
+                        led_on_off();
+                        previous_caselight_value = false;
+                    }
+                    //4.2.7 CLL 修改网页打印信息订阅
+                    if (jump_to_print == true) {
+                        print_start();
                         printer_ready = false;
                         show_preview_complete = false;
-                        jump_to_print = true;
                         page_to(TJC_PAGE_PREVIEW);
+                        break;
                     } else {
-                        page_to(TJC_PAGE_LEVEL_PRINT);
+                        print_start();
+                        if (level_mode_printing_is_printing_level == false) {
+                            //2023.4.27 使网页打印显示预览图
+                            printer_ready = false;
+                            //show_preview_complete = false;
+                            //jump_to_print = true;
+                            page_to(TJC_PAGE_PREVIEW);
+                        } else {
+                            page_to(TJC_PAGE_LEVEL_PRINT);
+                        }
                     }
                 }
             }
@@ -420,11 +456,18 @@ void refresh_page_show() {
         case TJC_PAGE_ABOUT:
         case TJC_PAGE_NO_UPDATA:
         case TJC_PAGE_SERVICE:
+        case TJC_PAGE_RESTORING:
+        case TJC_PAGE_RESTORE_CONFIG:
             break;
         
         default:
             // 喷头板断开的情况下跳到重启页面
             if (printer_webhooks_state == "shutdown" || printer_webhooks_state == "error") {
+                //4.2.5 CLL 新增息屏功能
+                if (previous_caselight_value == true) {
+                    led_on_off();
+                    previous_caselight_value = false;
+                }
                 page_to(TJC_PAGE_RESET);
                 std::cout << "重启页面" << std::endl;
                 if (current_webhooks_state_message != printer_webhooks_state_message) {
@@ -665,6 +708,23 @@ void refresh_page_show() {
         refresh_page_preview_pop();
         break;
 
+    //4.2.5 CLL 修复UI按下效果
+    case TJC_PAGE_OPEN_LEVEL:
+        refresh_page_open_level();
+        break;
+
+    case TJC_PAGE_RESTORING:
+        refresh_page_restoring();
+        break;
+
+    case TJC_PAGE_LOADING:
+        refresh_page_loading();
+        break;
+
+    case TJC_PAGE_PRE_HEATING_2:
+        refresh_page_pre_heating_2();
+        break;
+
     default:
         break;
     }
@@ -696,7 +756,7 @@ void refresh_page_open_syntony() {
     if ((printer_idle_timeout_state == "Ready")) {
         page_to(TJC_PAGE_SAVING_2);
         //2023.5.8 开机共振后移动50mm
-        ep->Send(json_run_a_gcode("G1 Z50 F600"));
+        //ep->Send(json_run_a_gcode("G1 Z50 F600"));
     }
 }
 
@@ -894,6 +954,7 @@ void refresh_page_saving() {
         }
     }
 
+    /*
     if (manual_level_finished == true) {
         
         manual_level_finished = false;
@@ -909,11 +970,11 @@ void refresh_page_saving() {
         // sleep(5);
         // page_to(TJC_PAGE_LEVEL_MODE);
         // MKSLOG_RED("从683行跳出去");
-        /*
+        
         if (all_level_saving == true) {
             page_to(TJC_PAGE_LEVEL_MODE);
         }
-        */
+        
         sleep(5);
         get_object_status();
         sub_object_status();
@@ -923,6 +984,7 @@ void refresh_page_saving() {
             page_to(TJC_PAGE_LEVEL_MODE);
         }
     }
+    */
     // std::cout << "all_level_saving == " << all_level_saving << std::endl;
     
     
@@ -940,19 +1002,31 @@ void refresh_page_saving() {
     
 }
 
+//4.2.3 CLL 修复WiFi刷新bug
 void refresh_page_wifi_list_2() {
-    if (printing_wifi_keyboard_enabled == false) {
-        send_cmd_txt(tty_fd, "t0", status_result.ip_address);
-        // std::cout << "Status_result Wpa_state" << status_result.wpa_state << std::endl;
-        if (strcmp(status_result.wpa_state, "COMPLETED") == 0) {
-            // std::cout << "已连接" << std::endl;
-
-        } else if (strcmp(status_result.wpa_state, "INACTIVE")) {
-            // std::cout << "未连接" << std::endl;
+    if (access("/var/run/wpa_supplicant/wlan0", F_OK) == 0){
+        if (printing_wifi_keyboard_enabled == false) {
+            send_cmd_txt(tty_fd, "t0", status_result.ip_address);
+            // std::cout << "Status_result Wpa_state" << status_result.wpa_state << std::endl;
+            if (strcmp(status_result.wpa_state, "COMPLETED") == 0) {
+                // std::cout << "已连接" << std::endl;
+    
+            } else if (strcmp(status_result.wpa_state, "INACTIVE")) {
+                // std::cout << "未连接" << std::endl;
+            }
+            // send_cmd_txt(tty_fd, "t0", wifi_ip_address);
+        } else {
+            send_cmd_txt(tty_fd, "t0", get_wifi_name);
         }
-        // send_cmd_txt(tty_fd, "t0", wifi_ip_address);
     } else {
+	    page_wifi_list_ssid_button_enabled[0] = false;
+        page_wifi_list_ssid_button_enabled[1] = false;
+        page_wifi_list_ssid_button_enabled[2] = false;
+        page_wifi_list_ssid_button_enabled[3] = false;
+        page_wifi_list_ssid_button_enabled[4] = false;
         send_cmd_txt(tty_fd, "t0", get_wifi_name);
+        page_wifi_ssid_list_pages = 0;
+        page_wifi_current_pages = 0;
     }
 }
 
@@ -961,7 +1035,7 @@ void refresh_page_syntony_finish() {
     MKSLOG_BLUE("Printer webhooks state: %s", printer_webhooks_state.c_str());
     if (page_syntony_finished == false) {
         page_syntony_finished = true;
-        ep->Send(json_run_a_gcode("SAVE_CONFIG"));
+        //ep->Send(json_run_a_gcode("SAVE_CONFIG"));
         all_level_saving = false;
     }
     
@@ -1085,15 +1159,47 @@ void refresh_page_about() {
     }
 }
 
+//4.2.5 CLL 修复UI按下效果
 void refresh_page_auto_level() {
+    //4.2.10 使调平界面显示最终zoffset值
+    send_cmd_txt(tty_fd, "t1", std::to_string(printer_gcode_move_homing_origin[2] - 0.15).substr(0,5) + "mm");
     if (auto_level_dist == (float)0.01) {
-        send_cmd_picc(tty_fd, "q0", "88");
+        send_cmd_picc(tty_fd, "b3", "95");
+        send_cmd_picc2(tty_fd, "b3", "317");
+        send_cmd_picc(tty_fd, "b4", "95");
+        send_cmd_picc2(tty_fd, "b4", "316");
+        send_cmd_picc(tty_fd, "b5", "95");
+        send_cmd_picc2(tty_fd, "b5", "316");
+        send_cmd_picc(tty_fd, "b6", "95");
+        send_cmd_picc2(tty_fd, "b6", "316");
+
     } else if (auto_level_dist == (float)0.05) {
-        send_cmd_picc(tty_fd, "q0", "89");
+        send_cmd_picc(tty_fd, "b3", "96");
+        send_cmd_picc2(tty_fd, "b3", "316");
+        send_cmd_picc(tty_fd, "b4", "96");
+        send_cmd_picc2(tty_fd, "b4", "317");
+        send_cmd_picc(tty_fd, "b5", "96");
+        send_cmd_picc2(tty_fd, "b5", "316");
+        send_cmd_picc(tty_fd, "b6", "96");
+        send_cmd_picc2(tty_fd, "b6", "316");
     } else if (auto_level_dist == (float)0.1) {
-        send_cmd_picc(tty_fd, "q0", "90");
+        send_cmd_picc(tty_fd, "b3", "97");
+        send_cmd_picc2(tty_fd, "b3", "316");
+        send_cmd_picc(tty_fd, "b4", "97");
+        send_cmd_picc2(tty_fd, "b4", "316");
+        send_cmd_picc(tty_fd, "b5", "97");
+        send_cmd_picc2(tty_fd, "b5", "317");
+        send_cmd_picc(tty_fd, "b6", "97");
+        send_cmd_picc2(tty_fd, "b6", "316");
     } else if (auto_level_dist == (float)1) {
-        send_cmd_picc(tty_fd, "q0", "91");
+        send_cmd_picc(tty_fd, "b3", "98");
+        send_cmd_picc2(tty_fd, "b3", "316");
+        send_cmd_picc(tty_fd, "b4", "98");
+        send_cmd_picc2(tty_fd, "b4", "316");
+        send_cmd_picc(tty_fd, "b5", "98");
+        send_cmd_picc2(tty_fd, "b5", "316");
+        send_cmd_picc(tty_fd, "b6", "98");
+        send_cmd_picc2(tty_fd, "b6", "317");
     }
 }
 
@@ -1112,10 +1218,47 @@ void refresh_page_stopping() {
     }
 }
 
+//4.2.5 CLL 新增设置Z轴偏移页面
 void refresh_page_set_zoffset_2() {
-    // std::cout << "printer_toolhead_position  3 ==== " << printer_toolhead_position[2] << std::endl;
-    // send_cmd_txt(tty_fd, "t1", "当前补偿值为：" + std::to_string(printer_toolhead_position[2]));
-    send_cmd_txt(tty_fd, "t1", std::to_string(printer_toolhead_position[2]));
+    //4.2.10 CLL 使调平界面显示最终zoffset值
+    send_cmd_txt(tty_fd, "t1", std::to_string(printer_gcode_move_homing_origin[2] - 0.15).substr(0,5) + "mm");
+    if (auto_level_dist == (float)0.01) {
+        send_cmd_picc(tty_fd, "b3", "95");
+        send_cmd_picc2(tty_fd, "b3", "317");
+        send_cmd_picc(tty_fd, "b4", "95");
+        send_cmd_picc2(tty_fd, "b4", "316");
+        send_cmd_picc(tty_fd, "b5", "95");
+        send_cmd_picc2(tty_fd, "b5", "316");
+        send_cmd_picc(tty_fd, "b6", "95");
+        send_cmd_picc2(tty_fd, "b6", "316");
+    } else if (auto_level_dist == (float)0.05) {
+        send_cmd_picc(tty_fd, "b3", "96");
+        send_cmd_picc2(tty_fd, "b3", "316");
+        send_cmd_picc(tty_fd, "b4", "96");
+        send_cmd_picc2(tty_fd, "b4", "317");
+        send_cmd_picc(tty_fd, "b5", "96");
+        send_cmd_picc2(tty_fd, "b5", "316");
+        send_cmd_picc(tty_fd, "b6", "96");
+        send_cmd_picc2(tty_fd, "b6", "316");
+    } else if (auto_level_dist == (float)0.1) {
+        send_cmd_picc(tty_fd, "b3", "97");
+        send_cmd_picc2(tty_fd, "b3", "316");
+        send_cmd_picc(tty_fd, "b4", "97");
+        send_cmd_picc2(tty_fd, "b4", "316");
+        send_cmd_picc(tty_fd, "b5", "97");
+        send_cmd_picc2(tty_fd, "b5", "317");
+        send_cmd_picc(tty_fd, "b6", "97");
+        send_cmd_picc2(tty_fd, "b6", "316");
+    } else if (auto_level_dist == (float)1) {
+        send_cmd_picc(tty_fd, "b3", "98");
+        send_cmd_picc2(tty_fd, "b3", "316");
+        send_cmd_picc(tty_fd, "b4", "98");
+        send_cmd_picc2(tty_fd, "b4", "316");
+        send_cmd_picc(tty_fd, "b5", "98");
+        send_cmd_picc2(tty_fd, "b5", "316");
+        send_cmd_picc(tty_fd, "b6", "98");
+        send_cmd_picc2(tty_fd, "b6", "317");
+    }
 }
 
 void refresh_page_manual_move_2() {
@@ -1206,19 +1349,19 @@ void refresh_page_set_zoffset() {
         send_cmd_txt(tty_fd, "b20", temp[14]);
         send_cmd_txt(tty_fd, "b21", temp[15]);
         */
-        //2.1.2 CLL 修改调平数据显示为至多16个
-        std::string temp[4][4];
+        //4.2.2 CLL 修改调平数据显示为至多36个
+        std::string temp[6][6];
         for (int i = 0; i < printer_bed_mesh_profiles_mks_mesh_params_y_count; i++) {
-        if (i == 4) {
+        if (i == 6) {
             break;
         }
         for (int j = 0; j < printer_bed_mesh_profiles_mks_mesh_params_x_count; j++) {
-            if (j == 4) {
+            if (j == 6) {
                 break;
             }
             temp[i][j] = std::to_string(printer_bed_mesh_profiles_mks_points[i][j]);
-            temp[i][j] = temp[i][j].substr(0, temp[i][j].find(".") + 4);
-            send_cmd_txt(tty_fd,"t"+std::to_string(i * 4 + j),temp[i][j]);
+            temp[i][j] = temp[i][j].substr(0, temp[i][j].find(".") + 3);
+            send_cmd_txt(tty_fd,"t"+std::to_string(i * 6 + j),temp[i][j]);
         }
     }
         //fresh_page_set_zoffset_data = true;
@@ -1244,9 +1387,10 @@ void refresh_page_manual_level() {
 
 void refresh_page_print_filament() {
 
-    MKSLOG_BLUE("Printer ide_timeout state: %s", printer_idle_timeout_state.c_str());
+    MKSLOG_BLUE("Printer idle_timeout state: %s", printer_idle_timeout_state.c_str());
     MKSLOG_BLUE("Printer webhooks state: %s", printer_webhooks_state.c_str());
 
+    /*
     if (page_print_filament_extrude_restract_button == true) {
         if (printer_idle_timeout_state == "Printing") {
             send_cmd_vid_en(tty_fd, "gm0", 1);
@@ -1256,6 +1400,7 @@ void refresh_page_print_filament() {
             page_print_filament_extrude_restract_button = false;
         }
     }
+    */
 
     /*
     if (printer_pause_resume_is_paused == false) {
@@ -1265,16 +1410,15 @@ void refresh_page_print_filament() {
         send_cmd_picc(tty_fd, "b9", "42");
         send_cmd_picc2(tty_fd, "b9", "42");
     }
-    */
-    
 
     if (printer_filament_extruedr_dist == 10) {
         send_cmd_picc(tty_fd, "q0", "53");
-    } else if (printer_filament_extruedr_dist == 20) {
-        send_cmd_picc(tty_fd, "q0", "54");
     } else if (printer_filament_extruedr_dist == 50) {
+        send_cmd_picc(tty_fd, "q0", "54");
+    } else if (printer_filament_extruedr_dist == 100) {
         send_cmd_picc(tty_fd, "q0", "55");
     }
+    */
 
     if (printer_extruder_target == 0) {
         send_cmd_pco(tty_fd, "t0", "65535");
@@ -1288,7 +1432,7 @@ void refresh_page_print_filament() {
     send_cmd_txt(tty_fd, "t0", std::to_string(printer_extruder_temperature));
     send_cmd_txt(tty_fd, "t1", std::to_string(printer_extruder_target));
     send_cmd_txt(tty_fd, "t6", show_time((int)(printer_print_stats_print_duration)));
-    send_cmd_txt(tty_fd, "t7", printer_print_stats_filename);
+    send_cmd_txt(tty_fd, "t7", printer_print_stats_filename.substr(printer_print_stats_filename.rfind("/") +1 ));
     send_cmd_txt(tty_fd, "t8", show_time(get_cal_printing_time((int)(printer_print_stats_print_duration), file_metadata_estimated_time, printer_display_status_progress)));
 
     //2023.5.11 CLL 修复页面反复跳转bug
@@ -1299,8 +1443,12 @@ void refresh_page_print_filament() {
     //2023.4.20 网页暂停开始与UI相匹配
     if (printer_print_stats_state == "printing") {
         if (printer_ready == true) {
-        page_to(TJC_PAGE_PRINTING);
-        printer_ready = false;
+            //4.2.10 CLL 修改断料检测开关逻辑
+            if (mks_fila_status == true) {
+                filament_sensor_switch(true);
+            }
+            page_to(TJC_PAGE_PRINTING);
+            printer_ready = false;
         }
     }
 
@@ -1325,6 +1473,11 @@ void refresh_page_print_filament() {
     if (printer_print_stats_state == "error") {
         page_to(TJC_PAGE_GCODE_ERROR);
         send_cmd_txt(tty_fd, "t0", "gcode error:" + output_console);
+    }
+
+    //4.2.7 CLL 打印时长时间暂停造成的打印中止会跳转至主页面
+    if (printer_idle_timeout_state == "Idle") {
+        page_to(TJC_PAGE_MAIN);
     }
 
 }
@@ -1534,7 +1687,7 @@ void refresh_page_leveling_init() {
             break;
 
         case TJC_PAGE_SET_ZOFFSET:
-            page_to(TJC_PAGE_SET_ZOFFSET);
+            page_to(TJC_PAGE_SET_ZOFFSET_2);
             break;
         
         default:
@@ -1557,6 +1710,29 @@ void refresh_page_move() {
     send_cmd_txt(tty_fd, "t0", x_pos);
     send_cmd_txt(tty_fd, "t1", y_pos);
     send_cmd_txt(tty_fd, "t2", z_pos);
+
+    if (printer_move_dist == (float)0.1) {
+        send_cmd_picc(tty_fd, "b16", "59");
+        send_cmd_picc2(tty_fd, "b16", "436");
+        send_cmd_picc(tty_fd, "b17", "59");
+        send_cmd_picc2(tty_fd, "b17", "437");
+        send_cmd_picc(tty_fd, "b18", "59");
+        send_cmd_picc2(tty_fd, "b18", "437");
+    } else if (printer_move_dist == (float)1.0) {
+        send_cmd_picc(tty_fd, "b16", "60");
+        send_cmd_picc2(tty_fd, "b16", "437");
+        send_cmd_picc(tty_fd, "b17", "60");
+        send_cmd_picc2(tty_fd, "b17", "436");
+        send_cmd_picc(tty_fd, "b18", "60");
+        send_cmd_picc2(tty_fd, "b18", "437");
+    } else if (printer_move_dist == (float)10) {
+        send_cmd_picc(tty_fd, "b16", "61");
+        send_cmd_picc2(tty_fd, "b16", "437");
+        send_cmd_picc(tty_fd, "b17", "61");
+        send_cmd_picc2(tty_fd, "b17", "437");
+        send_cmd_picc(tty_fd, "b18", "61");
+        send_cmd_picc2(tty_fd, "b18", "436");
+    }
 }
 
 void refresh_page_filament() {
@@ -1581,12 +1757,28 @@ void refresh_page_filament() {
         }
         */
 
+        //4.2.5 CLL 修复UI按下效果
         if (printer_filament_extruedr_dist == 10) {
-            send_cmd_picc(tty_fd, "q0", "66");
-        } else if (printer_filament_extruedr_dist == 20) {
-            send_cmd_picc(tty_fd, "q0", "67");
+            send_cmd_picc(tty_fd, "b23", "67");
+            send_cmd_picc2(tty_fd, "b23", "420");
+            send_cmd_picc(tty_fd, "b24", "66");
+            send_cmd_picc2(tty_fd, "b24", "421");
+            send_cmd_picc(tty_fd, "b25", "66");
+            send_cmd_picc2(tty_fd, "b25", "421");
         } else if (printer_filament_extruedr_dist == 50) {
-            send_cmd_picc(tty_fd, "q0", "68");
+            send_cmd_picc(tty_fd, "b23", "66");
+            send_cmd_picc2(tty_fd, "b23", "421");
+            send_cmd_picc(tty_fd, "b24", "67");
+            send_cmd_picc2(tty_fd, "b24", "420");
+            send_cmd_picc(tty_fd, "b25", "66");
+            send_cmd_picc2(tty_fd, "b25", "421");
+        } else if (printer_filament_extruedr_dist == 100) {
+            send_cmd_picc(tty_fd, "b23", "66");
+            send_cmd_picc2(tty_fd, "b23", "421");
+            send_cmd_picc(tty_fd, "b24", "66");
+            send_cmd_picc2(tty_fd, "b24", "421");
+            send_cmd_picc(tty_fd, "b25", "67");
+            send_cmd_picc2(tty_fd, "b25", "420");
         }
 
         
@@ -1635,19 +1827,22 @@ void refresh_page_filament() {
         //2.1.2 CLL 优化按钮状态更改
         if (printer_out_pin_fan0_value == 0) {
             send_cmd_vid(tty_fd, "gm1", "5");
-            send_cmd_picc2(tty_fd, "b3", "420");
+            send_cmd_picc2(tty_fd, "b21", "420");
         } else {
             send_cmd_vid(tty_fd, "gm1", "6");
-            send_cmd_vid(tty_fd, "b3", "421");
+            send_cmd_picc2(tty_fd, "b21", "421");
         }
 
         if (printer_out_pin_fan2_value == 0) {
             send_cmd_vid(tty_fd, "gm2", "7");
+            send_cmd_picc2(tty_fd, "b22", "420");
         } else {
             send_cmd_vid(tty_fd, "gm2", "8");
+            send_cmd_picc2(tty_fd, "b22", "421");
         }
 
-        if (filament_switch_sensor_fila_enabled == true) {
+        //if (filament_switch_sensor_fila_enabled == true) {
+        if (mks_fila_status == true) {
             send_cmd_picc(tty_fd, "b5", "422");
             send_cmd_picc2(tty_fd, "b5", "421");
         } else {
@@ -1658,10 +1853,10 @@ void refresh_page_filament() {
         //2.1.2 CLL 新增fan3
         if (printer_out_pin_fan3_value == 0) {
             send_cmd_vid(tty_fd, "gm3", "18");
-            send_cmd_picc2(tty_fd, "b23", "416");
+            send_cmd_picc2(tty_fd, "b3", "420");
         } else {
             send_cmd_vid(tty_fd, "gm3", "19");
-            send_cmd_picc2(tty_fd, "b23", "417");
+            send_cmd_picc2(tty_fd, "b3", "421");
         }
 
         if (printer_idle_timeout_state == "Printing") {
@@ -1677,6 +1872,11 @@ void refresh_page_filament() {
             if (page_filament_unload_button == true) {
                 page_to(TJC_PAGE_FILAMENT_POP_5);
                 page_filament_unload_button = false;
+            }
+            //4.2.7 CLL 修复耗材上下与断料检测冲突
+            if (previous_filament_sensor_state == true) {
+                set_filament_sensor();
+                previous_filament_sensor_state = false;
             }
         }
     // }
@@ -1705,7 +1905,7 @@ void refresh_page_printing_zoffset() {
     }
     send_cmd_txt(tty_fd, "t1", show_gcode_z);
     send_cmd_txt(tty_fd, "t2", z_offset);
-    send_cmd_txt(tty_fd, "t7", printer_print_stats_filename);
+    send_cmd_txt(tty_fd, "t7", printer_print_stats_filename.substr(printer_print_stats_filename.rfind("/") +1 ));
     send_cmd_txt(tty_fd, "t6", show_time((int)(printer_print_stats_print_duration)));
     send_cmd_txt(tty_fd, "t8", show_time(get_cal_printing_time((int)(printer_print_stats_print_duration), file_metadata_estimated_time, printer_display_status_progress)));
     send_cmd_picc(tty_fd, "q1", std::to_string(printer_display_status_progress + 139));
@@ -1724,7 +1924,8 @@ void refresh_page_printing_zoffset() {
 
     //2023.4.20 网页暂停开始与UI相匹配
     if (printer_print_stats_state == "paused") {
-        if (printer_ready = true) {
+        if (printer_ready == true) {
+            filament_sensor_switch(false);
             page_to(TJC_PAGE_PRINT_FILAMENT);
             printer_ready = false;
         }
@@ -1732,6 +1933,7 @@ void refresh_page_printing_zoffset() {
 
     if (printer_print_stats_state == "complete") {
         if (level_mode_printing_is_printing_level == false) {
+            filament_sensor_switch(false);
             complete_print();
             //2.1.2 CLL 修复网页显示预览图bug
             clear_previous_data();
@@ -1749,12 +1951,14 @@ void refresh_page_printing_zoffset() {
 
     //2023.5.8 CLL 网页停止后将跳转至打印停止界面
     if (printer_print_stats_state == "standby") {
+        filament_sensor_switch(false);
         page_to(TJC_PAGE_STOPPING);
     }
     //2023.5.8 CLL 报错弹窗
     if (printer_print_stats_state == "error") {
         page_to(TJC_PAGE_GCODE_ERROR);
         send_cmd_txt(tty_fd, "t0", "gcode error:" + output_console);
+        filament_sensor_switch(false);
     }
     //2.1.2 CLL 在打印设置zoffset界面也会有断料提醒弹窗
     if (filament_switch_sensor_fila_enabled == true) {
@@ -1767,10 +1971,6 @@ void refresh_page_printing_zoffset() {
 }
 
 void refresh_page_printing() {
-    //2.1.2 CLL 新增网页打印过文件标红
-    if (printer_ready == false) {
-        printed_file_path = "/" + printer_print_stats_filename;
-    }
     // std::cout << "刷新打印信息~~~~~~~~~~~~~~" << std::endl;
 
     /*
@@ -1787,7 +1987,7 @@ void refresh_page_printing() {
 
     send_cmd_picc(tty_fd, "q0", std::to_string(printer_display_status_progress + 139));
     send_cmd_txt(tty_fd, "t6", show_time((int)(printer_print_stats_print_duration)));
-    send_cmd_txt(tty_fd, "t7", printer_print_stats_filename);
+    send_cmd_txt(tty_fd, "t7", printer_print_stats_filename.substr(printer_print_stats_filename.rfind("/") +1 ));
     send_cmd_txt(tty_fd, "t8", show_time(get_cal_printing_time((int)(printer_print_stats_print_duration), file_metadata_estimated_time, printer_display_status_progress)));
 
 
@@ -1940,26 +2140,30 @@ void refresh_page_printing() {
         }
     } else {
         if (printer_pause_resume_is_paused == false) {
-            send_cmd_picc(tty_fd, "b9", "41");
-            send_cmd_picc2(tty_fd, "b9", "41");
+            send_cmd_picc(tty_fd, "b10", "41");
+            send_cmd_picc2(tty_fd, "b10", "41");
         } else {
-            send_cmd_picc(tty_fd, "b9", "42");
-            send_cmd_picc2(tty_fd, "b9", "42");
+            send_cmd_picc(tty_fd, "b10", "42");
+            send_cmd_picc2(tty_fd, "b10", "42");
         }
     }
 
     //2023.5.11 CLL 修复页面反复跳转bug
     if (printer_print_stats_state == "printing") {
-        printer_ready = false;
+        printer_ready = true;
     }
 
     //2023.4.20 网页暂停开始与UI相匹配
     if (printer_print_stats_state == "paused") {
-        page_to(TJC_PAGE_PRINT_FILAMENT);
-        printer_ready = true;
+        if (printer_ready == true) {
+            filament_sensor_switch(false);
+            page_to(TJC_PAGE_PRINT_FILAMENT);
+            printer_ready = false;
+        }
     }
 
     if (printer_print_stats_state == "complete") {
+        filament_sensor_switch(false);
         complete_print();
         //2.1.2 CLL 修复网页显示预览图bug
         clear_previous_data();
@@ -1973,6 +2177,7 @@ void refresh_page_printing() {
 
     //2023.5.8 CLL 网页停止后将跳转至打印停止界面
     if (printer_print_stats_state == "standby") {
+        filament_sensor_switch(false);
         page_to(TJC_PAGE_STOPPING);
     }
 
@@ -1980,6 +2185,7 @@ void refresh_page_printing() {
     if (printer_print_stats_state == "error") {
         page_to(TJC_PAGE_GCODE_ERROR);
         send_cmd_txt(tty_fd, "t0", "gcode error:" + output_console);
+        filament_sensor_switch(false);
     }
 
     if (filament_switch_sensor_fila_enabled == true) {
@@ -2012,111 +2218,113 @@ void clear_page_printing_arg() {
 void refresh_page_preview() {
     // MKSLOG_RED("进入到刷新预览图的页面, show_preview_complete %d", show_preview_complete);
     if (mks_file_parse_finished == true ) {
-    if (show_preview_complete == false) {
+        if (show_preview_complete == false) {
 
-        send_cmd_txt(tty_fd, "t0", file_metadata_filename);
+            //4.2.5 CLL 打印文件仅显示文件名
+            //send_cmd_txt(tty_fd, "t0", file_metadata_filename);
+            send_cmd_txt(tty_fd, "t0", file_metadata_filename.substr(file_metadata_filename.rfind("/") + 1));
 
-        MKSLOG_BLUE("file_metadata_estimated_time %d", file_metadata_estimated_time);
-        MKSLOG_BLUE("file_metadata_filament_weight_total %f", file_metadata_filament_weight_total);
-        MKSLOG_BLUE("file_metadata_filament_total %f", file_metadata_filament_total);
-        MKSLOG_BLUE("file_metadata_filament_name %s", file_metadata_filament_name.c_str());
+            MKSLOG_BLUE("file_metadata_estimated_time %d", file_metadata_estimated_time);
+            MKSLOG_BLUE("file_metadata_filament_weight_total %f", file_metadata_filament_weight_total);
+            MKSLOG_BLUE("file_metadata_filament_total %f", file_metadata_filament_total);
+            MKSLOG_BLUE("file_metadata_filament_name %s", file_metadata_filament_name.c_str());
 
-        if (file_metadata_estimated_time) {
-            send_cmd_txt(tty_fd, "t1", show_time(file_metadata_estimated_time));
-        } else {
-            send_cmd_txt(tty_fd, "t1", "-");
-        }
+            if (file_metadata_estimated_time) {
+                send_cmd_txt(tty_fd, "t1", show_time(file_metadata_estimated_time));
+            } else {
+                send_cmd_txt(tty_fd, "t1", "-");
+            }
 
-        if (file_metadata_filament_weight_total) {
-            std::string temp = std::to_string(file_metadata_filament_weight_total);
-            
-            send_cmd_txt(tty_fd, "t2", temp.substr(0, temp.find(".") + 2) + "g");
-        } else {
-            send_cmd_txt(tty_fd, "t2", "-");
-        }
+            if (file_metadata_filament_weight_total) {
+                std::string temp = std::to_string(file_metadata_filament_weight_total);
+                
+                send_cmd_txt(tty_fd, "t2", temp.substr(0, temp.find(".") + 2) + "g");
+            } else {
+                send_cmd_txt(tty_fd, "t2", "-");
+            }
 
-        if (file_metadata_filament_total) {
-            std::string temp = std::to_string(file_metadata_filament_total / 1000);
-            send_cmd_txt(tty_fd, "t3", temp.substr(0, temp.find(".") + 2) + "m");
-        } else {
-            send_cmd_txt(tty_fd, "t3", "-");
-        }
+            if (file_metadata_filament_total) {
+                std::string temp = std::to_string(file_metadata_filament_total / 1000);
+                send_cmd_txt(tty_fd, "t3", temp.substr(0, temp.find(".") + 2) + "m");
+            } else {
+                send_cmd_txt(tty_fd, "t3", "-");
+            }
 
         //2.1.2 CLL 识别耗材种类并弹窗
-        if (file_metadata_filament_type != "") {
-            send_cmd_txt(tty_fd, "t4", file_metadata_filament_type);
-        } else if (file_metadata_filament_name != ""){
-            send_cmd_txt(tty_fd, "t4", file_metadata_filament_name);
-        } else {
-            send_cmd_txt(tty_fd, "t4", "-");
-        }
+            if (file_metadata_filament_type != "") {
+                send_cmd_txt(tty_fd, "t4", file_metadata_filament_type);
+            } else if (file_metadata_filament_name != ""){
+                send_cmd_txt(tty_fd, "t4", file_metadata_filament_name);
+            } else {
+                send_cmd_txt(tty_fd, "t4", "-");
+            }
         // std::cout << file_metadata_gimage << std::endl;
 
         // 刷小图
-        if (show_preview_gimage_completed == false) {
-            
-            send_cmd_txt(tty_fd, "preview.cp0_text", "");
-            send_cmd_txt(tty_fd, "preview.add", "");
-            if (file_metadata_simage != "") {
-                std::cout << "刷小图" << std::endl;
-                int num = 1024;
-                int len = file_metadata_simage.length();
-                int end = num;
-                std::string s;
-                for (int start = 0; start < len;) {
-                    if (end > len) {
-                        s = file_metadata_simage.substr(start, len - start);
+            if (show_preview_gimage_completed == false) {
+                
+                send_cmd_txt(tty_fd, "preview.cp0_text", "");
+                send_cmd_txt(tty_fd, "preview.add", "");
+                if (file_metadata_simage != "") {
+                    std::cout << "刷小图" << std::endl;
+                    int num = 1024;
+                    int len = file_metadata_simage.length();
+                    int end = num;
+                    std::string s;
+                    for (int start = 0; start < len;) {
+                        if (end > len) {
+                            s = file_metadata_simage.substr(start, len - start);
+                            send_cmd_txt(tty_fd, "add", s);
+                            tcdrain(tty_fd);
+                            send_cmd_txt_plus(tty_fd, "cp0_text", "cp0_text", "add");
+                            tcdrain(tty_fd);
+                            break;
+                        }
+                        s = file_metadata_simage.substr(start, num);
+                        start = end;
+                        end = end + num;
                         send_cmd_txt(tty_fd, "add", s);
                         tcdrain(tty_fd);
                         send_cmd_txt_plus(tty_fd, "cp0_text", "cp0_text", "add");
                         tcdrain(tty_fd);
-                        break;
                     }
-                    s = file_metadata_simage.substr(start, num);
-                    start = end;
-                    end = end + num;
-                    send_cmd_txt(tty_fd, "add", s);
-                    tcdrain(tty_fd);
-                    send_cmd_txt_plus(tty_fd, "cp0_text", "cp0_text", "add");
-                    tcdrain(tty_fd);
                 }
-            }
 
-            // 刷大图
-            if (jump_to_print == false) {
-                send_cmd_cp_close(tty_fd, "preview.cp0");
-                if (file_metadata_gimage != "") {
-                    std::cout << "刷大图" << std::endl;
-                    // std::cout << "图片字符串的大小为: " << file_metadata_gimage.length() << std::endl;
-                    // std::cout << "图片的字节大小为：" << file_metadata_gimage.size() << std::endl;
-                    int num = 1024;
-                    int len = file_metadata_gimage.length();
-                    int end = num;
-                    std::string g;
-                    // int i = 0;
-                    for (int start = 0; start < len;) {
-                        if (end > len) {
-                            g = file_metadata_gimage.substr(start, len - start);
+                // 刷大图
+                if (jump_to_print == false) {
+                    send_cmd_cp_close(tty_fd, "preview.cp0");
+                    if (file_metadata_gimage != "") {
+                        std::cout << "刷大图" << std::endl;
+                        // std::cout << "图片字符串的大小为: " << file_metadata_gimage.length() << std::endl;
+                        // std::cout << "图片的字节大小为：" << file_metadata_gimage.size() << std::endl;
+                        int num = 1024;
+                        int len = file_metadata_gimage.length();
+                        int end = num;
+                        std::string g;
+                        // int i = 0;
+                        for (int start = 0; start < len;) {
+                            if (end > len) {
+                                g = file_metadata_gimage.substr(start, len - start);
+                                // std::cout << "字串" << i <<  ":" << s << std::endl;
+                                send_cmd_cp_image(tty_fd, "cp0", g);
+                                tcdrain(tty_fd);
+                                break;
+                            }
+                            g = file_metadata_gimage.substr(start, num);
+                            start = end;
+                            end = end + num;
                             // std::cout << "字串" << i <<  ":" << s << std::endl;
+                            // i++;
                             send_cmd_cp_image(tty_fd, "cp0", g);
+                            // usleep(40000);
                             tcdrain(tty_fd);
-                            break;
                         }
-                        g = file_metadata_gimage.substr(start, num);
-                        start = end;
-                        end = end + num;
-                        // std::cout << "字串" << i <<  ":" << s << std::endl;
-                        // i++;
-                        send_cmd_cp_image(tty_fd, "cp0", g);
-                        // usleep(40000);
-                        tcdrain(tty_fd);
                     }
+                    show_preview_gimage_completed = true;
+                    //2.1.2 CLL 新增热床调平
+                    bed_leveling_switch(true);
                 }
-                show_preview_gimage_completed = true;
-                //2.1.2 CLL 新增热床调平
-                bed_leveling_switch(true);
             }
-        }
 
         /*
         if (file_metadata_simage != "") {
@@ -2146,25 +2354,25 @@ void refresh_page_preview() {
         }
         */
 
-        show_preview_complete = true;
-        if (jump_to_print == true){
-            //2.1.2 开始打印前发送PRINT_START_QD
-            print_start();
-            //2.1.2 CLL 新增网页打印过文件标红
-            printed_file_path = "/" + printer_print_stats_filename;
-            jump_to_print = false;
-            //2.1.2 CLL 新增热床调平
-            bed_leveling_switch(true);
-            //2.1.2 CLL 打印前判断耗材种类并弹窗
-            check_filament_type();
-        }
+            show_preview_complete = true;
+            if (jump_to_print == true){
+                //2.1.2 开始打印前发送PRINT_START_QD
+                print_start();
+                //2.1.2 CLL 新增网页打印过文件标红
+                //printed_file_path = "/" + printer_print_stats_filename;
+                jump_to_print = false;
+                //2.1.2 CLL 新增热床调平
+                bed_leveling_switch(true);
+                //2.1.2 CLL 打印前判断耗材种类并弹窗
+                check_filament_type();
+            }
         // file_metadata_filename = "";
         // file_metadata_estimated_time = 0;
         // file_metadata_filament_weight_total = 0;
         // file_metadata_filament_name = "";
         // file_metadata_simage = "";
         // file_metadata_gimage = "";
-    }
+        }
     }
     //2.1.2 CLL 新增热床调平
     if (printer_bed_leveling_state == true) {
@@ -2223,13 +2431,19 @@ void refresh_page_main() {
 void refresh_page_files_list_1() {
     for (int i = 0; i < 8; i++) {
         //2023.4.20 打印过文件标红
+        /*
         if (printed_file_path == page_files_path + "/" + page_files_list_show_name[i]) {
             send_cmd_pco(tty_fd, "t" + std::to_string(i), "63488");
         }else {
             send_cmd_pco(tty_fd, "t" + std::to_string(i), "65535");
         }
+        */
         send_cmd_txt(tty_fd, "t" + std::to_string(i), page_files_list_show_name[i]);
-        if (page_files_list_show_type[i] == "[d]") {
+        //4.2.5 CLL 新增上次打印文件在文件列表第一页第一个显示
+        if (page_files_list_show_type[i] =="[c]") {
+            send_cmd_picc(tty_fd, "b" + std::to_string(i), "434");
+            send_cmd_picc2(tty_fd, "b" + std::to_string(i), "435");
+        } else if (page_files_list_show_type[i] == "[d]") {
             send_cmd_picc(tty_fd, "b" + std::to_string(i), std::to_string(13 + i));
             send_cmd_picc2(tty_fd, "b" + std::to_string(i), std::to_string(13 + i));
         } else if (page_files_list_show_type[i] == "[f]") {
@@ -2259,11 +2473,13 @@ void refresh_page_files_list_1() {
 void refresh_page_files_list_2() {
     for (int i = 0; i < 8; i++) {
         //2023.4.20 打印过文件标红
+        /*
         if (printed_file_path == page_files_path + "/" + page_files_list_show_name[i]) {
             send_cmd_pco(tty_fd, "t" + std::to_string(i), "63488");
         }else {
             send_cmd_pco(tty_fd, "t" + std::to_string(i), "65535");
         }
+        */
         send_cmd_txt(tty_fd, "t" + std::to_string(i), page_files_list_show_name[i]);
         if (page_files_list_show_type[i] == "[d]") {
             send_cmd_picc(tty_fd, "b" + std::to_string(i), std::to_string(13 + i));
@@ -2380,15 +2596,9 @@ void set_zoffset(bool positive) {
     }
 }
 
+//4.2.5 CLL 修复UI按下效果
 void set_move_dist(float dist) {
     printer_move_dist = dist;
-    if (dist == (float)0.1) {
-        send_cmd_picc(tty_fd, "q0", "59");
-    } else if (dist == (float)1.0) {
-        send_cmd_picc(tty_fd, "q0", "60");
-    } else if (dist == (float)10) {
-        send_cmd_picc(tty_fd, "q0", "61");
-    }
 }
 
 void set_printer_speed(int speed) {
@@ -2425,11 +2635,11 @@ void move_y_increase() {
 }
 
 void move_z_decrease() {
-    ep->Send(move(AXIS_Z, "-" + std::to_string(printer_move_dist), 130));
+    ep->Send(move(AXIS_Z, "-" + std::to_string(printer_move_dist), 10));
 }
 
 void move_z_increase() {
-    ep->Send(move(AXIS_Z, "+" + std::to_string(printer_move_dist), 130));
+    ep->Send(move(AXIS_Z, "+" + std::to_string(printer_move_dist), 10));
 }
 
 bool get_filament_detected() {
@@ -2453,6 +2663,7 @@ void set_print_pause_resume() {
 }
 
 void set_print_pause() {
+    filament_sensor_switch(false);
     ep->Send(json_run_a_gcode("PAUSE"));
     // printer_pause_taget = printer_extruder_target;
     // ep->Send(json_run_a_gcode("G1 Z10\n"));
@@ -2461,15 +2672,20 @@ void set_print_pause() {
 }
 
 void set_print_resume() {
+    if (get_mks_fila_status() == true) {
+        filament_sensor_switch(true);
+    }
     ep->Send(json_run_a_gcode("RESUME"));
     // set_extruder_target(printer_pause_taget);
     // printer_pause_taget = 0;
 }
 
 void cancel_print() {
+    filament_sensor_switch(false);
     printer_print_stats_filename = "";
     clear_cp0_image();
     /* 执行这个避免一直加热 */
+    filament_sensor_switch(false);
     // ep->Send(json_run_a_gcode(set_heater_temp("extruder", 0)));
     // ep->Send(json_run_a_gcode(set_heater_temp("heater_bed", 0)));
     // ep->Send(json_run_a_gcode(set_heater_temp("hot", 0)));
@@ -2499,16 +2715,18 @@ void set_auto_level_dist(float dist) {
     auto_level_dist = dist;
 }
 
+//4.2.4 CLL 修改调平
 void pre_auto_level_init() {
     
     std::cout << "然后进入到这里" << std::endl;
-    set_mks_babystep("0.000");                  // 自动调平前清零
+    //set_mks_babystep("0.000");                  // 自动调平前清零
     auto_level_dist = 0.05;                     // 自动调平默认选为0.05  20230207 kenneth.lin
     auto_level_finished = false;
     if (start_pre_auto_level == false) {
         printer_idle_timeout_state = "Printing";
     }
     page_to(TJC_PAGE_LEVELING_INIT);
+    sleep(1);
     //2023.4.25-3 修改调平初始化
     //ep->Send(json_run_a_gcode("BED_MESH_CLEAR\n"));
     // move_home();
@@ -2521,25 +2739,34 @@ void pre_auto_level_init() {
     // ep->Send(json_run_a_gcode("G28\nG1 X" + std::to_string(xtemp) + " Y" + std::to_string(ytemp) + "\nABORT\nPROBE_CALIBRATE\nTESTZ Z=-2\n"));
     //ep->Send(json_run_a_gcode("G28\nG1 X" + std::to_string(xtemp) + " Y" + std::to_string(ytemp) + " F3600\nG1 Z15 F1200\nABORT\nPROBE_CALIBRATE\nTESTZ Z=-3.0\n"));
     // page_to(TJC_PAGE_LEVELING_INIT);
-    ep->Send(json_run_a_gcode("M4029"));
+    get_mks_babystep();
+    previous_zoffset = mks_babystep_value;
+    float z;
+    z = std::stof(previous_zoffset);
+    z = z + 0.45;
+    previous_zoffset = std::to_string(z);
+    ep->Send(json_run_a_gcode("SET_GCODE_OFFSET Z=0 MOVE=0\n"));
+    ep->Send(json_run_a_gcode("M4029\n"));
+    // ep->Send(json_run_a_gcode("SET_GCODE_OFFSET Z=" + previous_zoffset + " MOVE=1\n"));
+    ep->Send(json_run_a_gcode("SET_GCODE_OFFSET Z=0.15 MOVE=1\n"));
 }
 
+//4.2.4 CLL 修改调平
 void start_auto_level() {
     printer_idle_timeout_state = "Printing";
-    if (auto_level_enabled == false) {
-        auto_level_finished = false;
-        ep->Send(json_run_a_gcode("ACCEPT\n"));    // 先注释掉，看下保存后的效果  
+    // if (auto_level_enabled == false) {
+    auto_level_finished = false;
+        //ep->Send(json_run_a_gcode("ACCEPT\n"));    // 先注释掉，看下保存后的效果  
         // ep->Send(json_run_a_gcode("ABORT\n"));
-        ep->Send(json_run_a_gcode("BED_MESH_CALIBRATE\n"));
+    ep->Send(json_run_a_gcode("SET_GCODE_OFFSET Z=0 MOVE=1"));
+    ep->Send(json_run_a_gcode("BED_MESH_CALIBRATE\n"));
         //2023.4.27 开机自动调平归零
-        ep->Send(json_run_a_gcode("G0 X0 Y0 Z50 F6000\n"));
+    ep->Send(json_run_a_gcode("G0 X0 Y0 Z50 F6000\n"));
         // ep->Send(json_run_a_gcode("G29\n"));
         // ep->Send(json_run_a_gcode("ACCEPT\nBED_MESH_CALIBRATE\nBED_MESH_PROFILE SAVE=\"name\"\n"));
         // ep->Send(json_run_a_gcode("ACCEPT\nBED_MESH_CALIBRATE\nBED_MESH_PROFILE SAVE=\"name\"\nSAVE_CONFIG\n"));
-        //2.1.2 CLL 新增开机调平完成后移动至0点
-        ep->Send(json_run_a_gcode("G0 X0 Y0 Z50 F1200\n"));
-        auto_level_enabled = true;
-    }
+        // auto_level_enabled = true;
+    // }
 }
 
 void start_manual_level() {
@@ -2557,11 +2784,13 @@ void start_manual_level() {
 
 /* 完成自动调平 */
 void finish_auto_level() {
-    if ( auto_level_finished == false ) {
+    //4.2.2 CLL 修复卡在自动调平完成页面
+    if ( auto_level_finished == false ||printer_idle_timeout_state == "Idle") {
         //2023.4.20 修改调平流程
         // ep->Send(json_run_a_gcode("G1 X0 Y0 F6000\nSAVE_CONFIG\n"));
         // ep->Send(json_run_a_gcode("G1 X0 Y0 F6000\nG91\nG1 Z200\nG90\nM1029\nSAVE_CONFIG"));
-        ep->Send(json_run_a_gcode("G0 X0 Y0 Z50 F5000\nM1029\nSAVE_CONFIG"));
+        //4.2.2 CLL 修改自动调平完成移动平台
+        ep->Send(json_run_a_gcode("G0 Z50 F600\nG1 X0 Y0 G9000\nSAVE_CONFIG\n"));
         // ep->Send(json_run_a_gcode("SAVE_CONFIG\nBED_MESH_PROFILE LOAD=\"name\"\n"));
         all_level_saving = false;
         // sleep(7);
@@ -2694,11 +2923,14 @@ void pre_set_zoffset_init() {
     ep->Send(json_run_a_gcode("G1 X" + std::to_string(xtemp) + " Y" + std::to_string(ytemp) + "F3600\nG1 Z0 F1200\n"));
 }
 
+//4.2.4 CLL 修改调平
 void start_auto_level_dist(bool positive) {
     if (positive == true) {
-        ep->Send(json_run_a_gcode("TESTZ Z=" + std::to_string(auto_level_dist)));
+        //ep->Send(json_run_a_gcode("TESTZ Z=" + std::to_string(auto_level_dist)));
+        ep->Send(json_run_a_gcode("SET_GCODE_OFFSET Z_ADJUST=" + std::to_string(auto_level_dist) + " MOVE=1"));
     } else {
-        ep->Send(json_run_a_gcode("TESTZ Z=-" + std::to_string(auto_level_dist)));
+        //ep->Send(json_run_a_gcode("TESTZ Z=-" + std::to_string(auto_level_dist)));
+        ep->Send(json_run_a_gcode("SET_GCODE_OFFSET Z_ADJUST=-" + std::to_string(auto_level_dist) + " MOVE=1"));
     }
 }
 
@@ -2728,10 +2960,13 @@ void set_filament_extruder_target(bool positive) {
     if (printer_filament_extruder_target < 0) {
         printer_filament_extruder_target = 0;
         set_extruder_target(0);
-        set_mks_extruder_target(0);
+        //set_mks_extruder_target(0);
     } else {
         set_extruder_target(printer_filament_extruder_target);
-        set_mks_extruder_target(printer_filament_extruder_target);
+        //4.2.7 CLL 设置喷头温度保存下限为170
+        if (printer_filament_extruder_target >170) {
+            set_mks_extruder_target(printer_filament_extruder_target);
+        }
     }
 }
 
@@ -2745,7 +2980,7 @@ void start_retract() {
         send_cmd_vid(tty_fd, "gm0", "9");
         // send_cmd_vid_en(tty_fd, "gm0", 1);
     } else if (current_page_id == TJC_PAGE_PRINT_FILAMENT) {
-        send_cmd_vid(tty_fd, "gm0", "2");
+        // send_cmd_vid(tty_fd, "gm0", "2");
         // send_cmd_vid_en(tty_fd, "gm0", 1);
     }
 }
@@ -2756,7 +2991,7 @@ void start_extrude() {
         send_cmd_vid(tty_fd, "gm0", "10");
         // send_cmd_vid_en(tty_fd, "gm0", 1);
     } else if (current_page_id == TJC_PAGE_PRINT_FILAMENT) {
-        send_cmd_vid(tty_fd, "gm0", "3");
+        // send_cmd_vid(tty_fd, "gm0", "3");
     }
 }
 
@@ -2786,6 +3021,9 @@ void filament_tips() {
 }
 
 void move_tips() {
+    if (current_page_id == TJC_PAGE_OPEN_VIDEO_4) {
+        return;
+    }
     if (current_page_id == TJC_PAGE_MOVE) {
         page_to(TJC_PAGE_POP_1);
         // page_to(TJC_PAGE_MOVE_POP_1);
@@ -2827,13 +3065,15 @@ void finish_print() {
 
 void set_filament_sensor() {
     std::cout << "filament_switch_sensor fila = " << filament_switch_sensor_fila_enabled << std::endl; 
-    if (filament_switch_sensor_fila_enabled == 0) {
-        ep->Send(json_run_a_gcode("SET_FILAMENT_SENSOR SENSOR=fila ENABLE=1\n"));
-        mks_fila_status = true;
+    //4.2.10 CLL 修改断料检测开关逻辑
+    if (mks_fila_status == true) {
+    //if (filament_switch_sensor_fila_enabled == 0) {
+        //ep->Send(json_run_a_gcode("SET_FILAMENT_SENSOR SENSOR=fila ENABLE=1\n"));
+        mks_fila_status = false;
         set_mks_fila_status();
     } else {
-        ep->Send(json_run_a_gcode("SET_FILAMENT_SENSOR SENSOR=fila ENABLE=0\n"));
-        mks_fila_status = false;
+        //ep->Send(json_run_a_gcode("SET_FILAMENT_SENSOR SENSOR=fila ENABLE=0\n"));
+        mks_fila_status = true;
         set_mks_fila_status();
     }
 }
@@ -2853,11 +3093,11 @@ void beep_on_off() {
     if (printer_out_pin_beep_value == 0) {
         ep->Send(json_run_a_gcode("beep_on"));
         mks_beep_status = true;
-        set_mks_beep_status();
+        //set_mks_beep_status();
     } else {
         ep->Send(json_run_a_gcode("beep_off"));
         mks_beep_status = false;
-        set_mks_beep_status();
+        //set_mks_beep_status();
     }
 }
 
@@ -2865,11 +3105,14 @@ void led_on_off() {
     if (printer_caselight_value == 0) {
         ep->Send(json_run_a_gcode("SET_PIN PIN=caselight VALUE=1"));
         mks_led_status = true;
-        set_mks_led_status();
+        //set_mks_led_status();
     } else {
         ep->Send(json_run_a_gcode("SET_PIN PIN=caselight VALUE=0"));
-        mks_led_status = false;
-        set_mks_led_status();
+        //4.2.8 CLL 息屏不保存状态
+        if (previous_caselight_value == false) {
+            mks_led_status = false;
+            //set_mks_led_status();
+        }
     }
 }
 
@@ -3078,6 +3321,7 @@ void go_to_about() {
     }
 }
 
+//4.2.3 CLL 修复WiFi刷新bug
 void go_to_network() {
     if (!get_mks_net_status()) {
         mks_wpa_cli_open_connection();
@@ -3089,8 +3333,9 @@ void go_to_network() {
         page_wifi_ssid_list_pages = 0;
         page_wifi_current_pages = 0;
         page_to(TJC_PAGE_WIFI_LIST_2);
-        send_cmd_txt(tty_fd, "t0", get_wlan0_ip().data());
-        get_wlan0_status();
+        //send_cmd_txt(tty_fd, "t0", get_wlan0_ip().data());
+        //get_wlan0_status();
+        scan_ssid_and_show();
         if (strcmp(status_result.wpa_state, "COMPLETED") == 0) {
             current_connected_ssid_name = status_result.ssid;       // 如果已经连接wifi，获取wifi的名字
         } else if (strcmp(status_result.wpa_state, "INACTIVE")) {
@@ -3103,7 +3348,9 @@ void go_to_network() {
     }
 }
 
+//4.2.3 CLL 修复WiFi刷新bug
 void scan_ssid_and_show() {
+    if (access("/var/run/wpa_supplicant/wlan0", F_OK) == 0) {
     get_wlan0_status();
     mks_wpa_scan_scanresults();
     // mks_wpa_scan();
@@ -3111,68 +3358,76 @@ void scan_ssid_and_show() {
     page_wifi_current_pages = 0;
     set_page_wifi_ssid_list(page_wifi_current_pages);
     refresh_page_wifi_list();
+    } else {
+	    mks_page_internet_ip = get_eth0_ip();
+		page_to(TJC_PAGE_INTERNET);
+		send_cmd_txt(tty_fd, "t0", mks_page_internet_ip);
+    }
 }
 
+//4.2.3 CLL 修复WiFi刷新bug
 void refresh_page_wifi_list() {
-    for (int i = 0; i < 5; i++) {
-        std::cout << "刷新的wifi: " << page_wifi_ssid_list[i] << std::endl;
-        // send_cmd_txt(tty_fd, "t" + std::to_string(i+1), page_wifi_ssid_list[i]);
-        // current_connected_ssid_name;
+    if (access("/var/run/wpa_supplicant/wlan0", F_OK) == 0) {
+        for (int i = 0; i < 5; i++) {
+            std::cout << "刷新的wifi: " << page_wifi_ssid_list[i] << std::endl;
+            // send_cmd_txt(tty_fd, "t" + std::to_string(i+1), page_wifi_ssid_list[i]);
+            // current_connected_ssid_name;
         
-        if (0 == page_wifi_current_pages) {
-            if (0 == i) {
-                if (strcmp(status_result.wpa_state, "COMPLETED") == 0) {
-                    send_cmd_txt(tty_fd, "t" + std::to_string(i+1), status_result.ssid);
+            if (0 == page_wifi_current_pages) {
+                if (0 == i) {
+                    if (strcmp(status_result.wpa_state, "COMPLETED") == 0) {
+                        send_cmd_txt(tty_fd, "t" + std::to_string(i+1), status_result.ssid);
+                    } else {
+                        send_cmd_txt(tty_fd, "t" + std::to_string(i+1), page_wifi_ssid_list[i]);
+                    }
                 } else {
                     send_cmd_txt(tty_fd, "t" + std::to_string(i+1), page_wifi_ssid_list[i]);
                 }
             } else {
                 send_cmd_txt(tty_fd, "t" + std::to_string(i+1), page_wifi_ssid_list[i]);
             }
-        } else {
-            send_cmd_txt(tty_fd, "t" + std::to_string(i+1), page_wifi_ssid_list[i]);
-        }
         
-        // sleep(1);
-        MKSLOG_BLUE("%d/%d", page_wifi_current_pages + 1, page_wifi_ssid_list_pages);
-        if (page_wifi_current_pages == 0) {
-            if (strcmp(status_result.wpa_state, "COMPLETED") == 0) {
-                send_cmd_picc(tty_fd, "wifi1", "101");
-                page_wifi_list_ssid_button_enabled[0] = false;
+            // sleep(1);
+            MKSLOG_BLUE("%d/%d", page_wifi_current_pages + 1, page_wifi_ssid_list_pages);
+            if (page_wifi_current_pages == 0) {
+                if (strcmp(status_result.wpa_state, "COMPLETED") == 0) {
+                    send_cmd_picc(tty_fd, "wifi1", "101");
+                    page_wifi_list_ssid_button_enabled[0] = false;
+                } else {
+                    send_cmd_picc(tty_fd, "wifi1", "102");
+                    page_wifi_list_ssid_button_enabled[0] = true;
+                }
             } else {
                 send_cmd_picc(tty_fd, "wifi1", "102");
                 page_wifi_list_ssid_button_enabled[0] = true;
             }
-        } else {
-            send_cmd_picc(tty_fd, "wifi1", "102");
-            page_wifi_list_ssid_button_enabled[0] = true;
-        }
 
-        if (page_wifi_ssid_list[i] == "") {
-            std::cout << "刷新为没有锁的图片" << std::endl;
-            send_cmd_picc(tty_fd, "wifi" + std::to_string(i + 1), "358");
-            send_cmd_picc2(tty_fd, "wifi" + std::to_string(i + 1), "359");
-            page_wifi_list_ssid_button_enabled[i] = false;
-        } else {
-            std::cout << "刷新为有锁的图片" << std::endl;
-            send_cmd_picc(tty_fd, "wifi" + std::to_string(i + 1), "102");
-            send_cmd_picc2(tty_fd, "wifi" + std::to_string(i + 1), "323");
-            page_wifi_list_ssid_button_enabled[i] = true;
-        }
-
-        if (page_wifi_ssid_list_pages == 0) {
-            send_cmd_picc(tty_fd, "b0", "104");
-            send_cmd_picc(tty_fd, "b1", "106");
-        } else {
-            if (page_wifi_current_pages == 0) {
-                send_cmd_picc(tty_fd, "b0", "104");
+            if (page_wifi_ssid_list[i] == "") {
+                std::cout << "刷新为没有锁的图片" << std::endl;
+                send_cmd_picc(tty_fd, "wifi" + std::to_string(i + 1), "358");
+                send_cmd_picc2(tty_fd, "wifi" + std::to_string(i + 1), "359");
+                page_wifi_list_ssid_button_enabled[i] = false;
             } else {
-                send_cmd_picc(tty_fd, "b0", "103");
+                std::cout << "刷新为有锁的图片" << std::endl;
+                send_cmd_picc(tty_fd, "wifi" + std::to_string(i + 1), "102");
+                send_cmd_picc2(tty_fd, "wifi" + std::to_string(i + 1), "323");
+                page_wifi_list_ssid_button_enabled[i] = true;
             }
-            if (page_wifi_current_pages == page_wifi_ssid_list_pages - 1) {
+
+            if (page_wifi_ssid_list_pages == 0) {
+                send_cmd_picc(tty_fd, "b0", "104");
                 send_cmd_picc(tty_fd, "b1", "106");
             } else {
-                send_cmd_picc(tty_fd, "b1", "105");
+                if (page_wifi_current_pages == 0) {
+                    send_cmd_picc(tty_fd, "b0", "104");
+                } else {
+                    send_cmd_picc(tty_fd, "b0", "103");
+                }
+                if (page_wifi_current_pages == page_wifi_ssid_list_pages - 1) {
+                    send_cmd_picc(tty_fd, "b1", "106");
+                } else {
+                    send_cmd_picc(tty_fd, "b1", "105");
+                }
             }
         }
     }
@@ -3312,9 +3567,13 @@ void set_mks_fila_status() {
 }
 
 void init_mks_status() {
+    get_mks_fila_status(); // CLL 每次启动获取断料检测状态
     get_mks_total_printed_time();
     get_mks_babystep();
     printer_set_babystep();
+    //4.2.10 开机自动设置声音关、灯开、断料检测关
+    ep->Send(json_run_a_gcode("beep_off\nSET_PIN PIN=caselight VALUE=1\nSET_FILAMENT_SENSOR SENSOR=fila ENABLE=0\n"));
+    /*
     if (get_mks_beep_status() == 0) {
 		MKSLOG_RED("关闭蜂鸣器");
 		if (get_mks_led_status() == 0) {
@@ -3358,6 +3617,7 @@ void init_mks_status() {
 			}
 		}
 	}
+    */
 }
 
 void after_scan_refresh_page() {
@@ -3435,8 +3695,21 @@ void filament_unload() {
     // 加热到280度后自动退料
     //2023.4.25-5 修改自动退料
     //ep->Send(json_run_a_gcode("M84\nM109 T0 S280\nM83\nG1 E10 F300\nG1 E-90 F300\n"));           // 退料先解锁电机
-    ep->Send(json_run_a_gcode("M603"));
+    ep->Send(json_run_a_gcode("M109 S" + std::to_string(load_target) + "\n"));
+    ep->Send(json_run_a_gcode("M604\n"));
+
+    //4.2.4 CLL 修复断料检测与退料冲突bug
+    //if (previous_filament_sensor_state == true) {
+    //    set_filament_sensor();
+    //    previous_filament_sensor_state = false;
+    //}
 }
+
+void filament_load() {
+    ep->Send(json_run_a_gcode("M109 S" + std::to_string(load_target) + "\n"));
+    ep->Send(json_run_a_gcode("M604\n"));
+}
+
 
 int get_cal_printed_time(int print_time) {
     int printed_time = 0;
@@ -3503,17 +3776,26 @@ void set_mks_oobe_enabled(bool enable) {
     system("sync");
 }
 
+//4.2.4 CLL 修改调平
 void pre_open_auto_level_init() {
     page_to(TJC_PAGE_OPEN_LEVELINIT);
     std::cout << "然后进入到这里" << std::endl;
-    set_mks_babystep("0.000");
+    //set_mks_babystep("0.000");
     auto_level_dist = 0.05;
     auto_level_finished = false;
     if (start_pre_auto_level == false) {
         printer_idle_timeout_state = "Printing";
     }
-    //2023.4.28 修改开机调平初始化指令
-    ep->Send(json_run_a_gcode("M4029"));
+    get_mks_babystep();
+    previous_zoffset = mks_babystep_value;
+    float z;
+    z = std::stof(previous_zoffset);
+    z = z + 0.45;
+    previous_zoffset = std::to_string(z);
+    ep->Send(json_run_a_gcode("SET_GCODE_OFFSET Z=0 MOVE=0\n"));
+    ep->Send(json_run_a_gcode("M4029\n"));
+    // ep->Send(json_run_a_gcode("SET_GCODE_OFFSET Z=" + previous_zoffset + " MOVE=1\n"));
+    ep->Send(json_run_a_gcode("SET_GCODE_OFFSET Z=0.15 MOVE=1\n"));// CLL 修改每次开始调平时，基准值为0
     //int xtemp = printer_toolhead_axis_maximum[0] / 2 - printer_probe_x_zoffset;     // 直接用最大量程除以2
     //int ytemp = printer_toolhead_axis_maximum[1] / 2 - printer_probe_y_zoffset;     // 直接用最大量程除以2
     //ep->Send(json_run_a_gcode("BED_MESH_CLEAR\nG28\nG1 X" + std::to_string(xtemp) + " Y" + std::to_string(ytemp) + "F3600\nG1 Z15 F1200\nABORT\nPROBE_CALIBRATE\nTESTZ Z=-3.0\n"));
@@ -3524,7 +3806,7 @@ void open_go_to_syntony_move() {
     page_syntony_finished = false;
     printer_idle_timeout_state = "Printing";
     page_to(TJC_PAGE_OPEN_SYNTONY);
-    ep->Send(json_run_a_gcode("M1029\nM901\n"));
+    ep->Send(json_run_a_gcode("M901\n"));
 }
 
 void move_motors_off() {
@@ -3539,7 +3821,7 @@ void open_syntony_finish() {
     MKSLOG_BLUE("Printer webhooks state: %s", printer_webhooks_state.c_str());
     if (page_syntony_finished == false) {
         page_syntony_finished = true;
-        ep->Send(json_run_a_gcode("SAVE_CONFIG"));
+        //ep->Send(json_run_a_gcode("SAVE_CONFIG"));
     }
 
     if (printer_idle_timeout_state == "Ready" && printer_webhooks_state == "ready") {
@@ -3616,7 +3898,7 @@ void open_more_level_finish() {
 }
 
 void open_down_50() {
-    ep->Send(json_run_a_gcode("G91\nG1 Z50\nG90"));
+    ep->Send(json_run_a_gcode("G28\nG1 Z50\n"));
 }
 
 void close_mcu_port() {
@@ -3625,7 +3907,8 @@ void close_mcu_port() {
 
 //2023.5.11 CLL 打印前发送"PRINT_START_QD"指令
 void print_start() {
-    ep->Send(json_run_a_gcode("PRINT_START_QD\n"));
+    //4.3.11 CLL 打印开始前不再发送"PRINT_START_QD"
+    //ep->Send(json_run_a_gcode("PRINT_START_QD\n"));
 }
 
 int get_mks_net_status() {
@@ -3692,17 +3975,31 @@ void clear_previous_data() {
     clear_page_preview();
     show_preview_complete = false;
     printing_keyboard_enabled = false;
+    jump_to_print = false;
 }
 
 //2023.5.8 CLL 报错弹窗
 void detect_error() {
     //2023.5.11 CLL 修复页面跳转bug
-    if (current_page_id != TJC_PAGE_PRINTING && current_page_id != TJC_PAGE_PRINT_ZOFFSET && current_page_id != TJC_PAGE_PRINT_FILAMENT)
-    {   
+    switch (current_page_id)
+    {
+    case TJC_PAGE_PRINTING:
+    case TJC_PAGE_PRINT_ZOFFSET:
+    case TJC_PAGE_PRINT_FILAMENT:
+    case TJC_PAGE_GCODE_ERROR:
+        break;
+    
+    default:
         if (printer_webhooks_state != "shutdown" && printer_webhooks_state != "error") {
+            //4.2.5 新增息屏功能
+            if (previous_caselight_value == true) {
+                led_on_off();
+                previous_caselight_value = false;
+            }
             page_to(TJC_PAGE_DETECT_ERROR);
             send_cmd_txt(tty_fd, "t0", output_console);
         }
+        break;
     }
 }
 
@@ -3726,7 +4023,9 @@ void refresh_page_open_heater_bed() {
 //2.1.2 CLL 修改开机引导流程
 void open_heater_bed_up() {
     page_to(TJC_PAGE_OPEN_VIDEO_4);
-    ep->Send(json_run_a_gcode("G91\nG1 Z-150 F600\nG1 X-50 Y-50 F1200\nG90\n"));
+    //4.2.10 CLL 修改开机引导平台上移距离
+    ep->Send(json_run_a_gcode("G91\nG1 Z-30 F600\nG1 X-30 Y-30 F1200\nG90\n"));
+    ep->Send(json_run_a_gcode("SET_KINEMATIC_POSITION Z=130\n"));
 }
 
 //2.1.2 CLL 新增热床调平
@@ -3744,10 +4043,47 @@ void bed_leveling_switch(bool positive) {
 void save_current_zoffset() {
     std::string z_offset = std::to_string(printer_gcode_move_homing_origin[2]);
     z_offset = z_offset.substr(0, z_offset.find(".") + 4);
-    if (z_offset != mks_babystep_value && z_offset.find("0.000") != -1) {
-        mks_babystep_value = z_offset;
-        set_mks_babystep(mks_babystep_value);
-        MKSLOG_RED("当前zoffset值保存为:%s",mks_babystep_value.c_str());
+    switch (current_page_id)
+    {
+    case TJC_PAGE_AUTO_MOVE:
+    case TJC_PAGE_OPEN_LEVELING:
+        printer_idle_timeout_state = "Printing";
+        float z;
+        z = std::stof(z_offset);
+        z = z - 0.15;
+        if (z > -5 && z < 5) { // CLL 修改zoffset只会保存-5 ~ 5 的值
+            z_offset = std::to_string(z);
+            mks_babystep_value = z_offset;
+            set_mks_babystep(mks_babystep_value);
+            MKSLOG_RED("当前zoffset值保存为%s",mks_babystep_value.c_str());
+        }
+        break;
+
+    //4.2.5 CLL 新增设置Z轴偏移页面
+    case TJC_PAGE_SET_ZOFFSET_2:
+        printer_idle_timeout_state = "Printing";
+        page_to(TJC_PAGE_SAVING);
+        z = std::stof(z_offset);
+        z = z - 0.15;
+        if (z > -5 && z < 5) { // CLL 修改zoffset只会保存-5 ~ 5 的值
+            z_offset = std::to_string(z);
+            mks_babystep_value = z_offset;
+            set_mks_babystep(mks_babystep_value);
+            MKSLOG_RED("当前zoffset值保存为%s",mks_babystep_value.c_str());
+        }
+        ep->Send(json_run_a_gcode("G0 X0 Y0 Z50 F5000\n"));
+        ep->Send(json_run_a_gcode("SAVE_CONFIG\n"));
+        break;
+    
+    default:
+        if (z_offset != mks_babystep_value && z_offset.find("0.000") != -1) {
+            if (std::stof(z_offset) > -5 && std::stof(z_offset) < 5) {
+                mks_babystep_value = z_offset;
+                set_mks_babystep(mks_babystep_value);
+                MKSLOG_RED("当前zoffset值保存为:%s",mks_babystep_value.c_str());
+            }
+        }
+        break;
     }
 }
 
@@ -3761,9 +4097,10 @@ void check_filament_type() {
     }
     std::transform(filament_type.begin(), filament_type.end(), filament_type.begin(), tolower);
     MKSLOG_YELLOW("filament_type : %s",filament_type.c_str());
-    if (filament_type.find("pla") != -1 || filament_type.find("petg") != -1) {
+    //4.2.3 CLL 耗材确认弹窗新增不再提示按钮
+    if ((filament_type.find("pla") != -1 || filament_type.find("petg") != -1) && preview_pop_1_on == true) {
         page_to(TJC_PAGE_PREVIEW_POP_1);
-    }else if (filament_type.find("abs") != -1) {
+    }else if (filament_type.find("abs") != -1 && preview_pop_2_on == true) {
         page_to(TJC_PAGE_PREVIEW_POP_2);
     }else {
         page_to(TJC_PAGE_PRINTING);
@@ -3773,7 +4110,13 @@ void check_filament_type() {
 //2.1.2 CLL 新增退料界面
 void refresh_page_unloading() {
     if (printer_idle_timeout_state == "Ready") {
-        page_to(TJC_PAGE_FILAMENT);
+        page_to(TJC_PAGE_UNLOAD_FINISH);
+    }
+}
+
+void refresh_page_loading() {
+    if (printer_idle_timeout_state == "Ready") {
+        page_to(TJC_PAGE_LOAD_FINISH);
     }
 }
 
@@ -3792,6 +4135,117 @@ void refresh_page_preview_pop() {
             page_to(TJC_PAGE_PRINT_F_POP);
             set_print_pause();
             clear_page_printing_arg();
+        }
+    }
+}
+
+//4.2.1 CLL 修复无法读取文件名中带空格文件
+std::string replaceCharacters(const std::string& path, const std::string& searchChars, const std::string& replacement) {
+    std::string result = path;
+    for (char c : searchChars) {
+        std::size_t found = result.find(c);
+        while (found != std::string::npos) {
+            result.replace(found, 1, replacement);
+            found = result.find(c, found + replacement.length());
+        }
+    }
+    return result;
+}
+
+//4.2.5 CLL 修复UI按下效果
+void refresh_page_open_level() {
+    if (auto_level_dist == (float)0.01) {
+        send_cmd_picc(tty_fd, "b3", "260");
+        send_cmd_picc2(tty_fd, "b3", "284");
+        send_cmd_picc(tty_fd, "b4", "260");
+        send_cmd_picc2(tty_fd, "b4", "283");
+        send_cmd_picc(tty_fd, "b5", "260");
+        send_cmd_picc2(tty_fd, "b5", "283");
+        send_cmd_picc(tty_fd, "b6", "260");
+        send_cmd_picc2(tty_fd, "b6", "283");
+    } else if (auto_level_dist == (float)0.05) {
+        send_cmd_picc(tty_fd, "b3", "261");
+        send_cmd_picc2(tty_fd, "b3", "283");
+        send_cmd_picc(tty_fd, "b4", "261");
+        send_cmd_picc2(tty_fd, "b4", "284");
+        send_cmd_picc(tty_fd, "b5", "261");
+        send_cmd_picc2(tty_fd, "b5", "283");
+        send_cmd_picc(tty_fd, "b6", "261");
+        send_cmd_picc2(tty_fd, "b6", "283");
+    } else if (auto_level_dist == (float)0.1) {
+        send_cmd_picc(tty_fd, "b3", "262");
+        send_cmd_picc2(tty_fd, "b3", "283");
+        send_cmd_picc(tty_fd, "b4", "262");
+        send_cmd_picc2(tty_fd, "b4", "283");
+        send_cmd_picc(tty_fd, "b5", "262");
+        send_cmd_picc2(tty_fd, "b5", "284");
+        send_cmd_picc(tty_fd, "b6", "262");
+        send_cmd_picc2(tty_fd, "b6", "283");
+    } else if (auto_level_dist == (float)1) {
+        send_cmd_picc(tty_fd, "b3", "263");
+        send_cmd_picc2(tty_fd, "b3", "283");
+        send_cmd_picc(tty_fd, "b4", "263");
+        send_cmd_picc2(tty_fd, "b4", "283");
+        send_cmd_picc(tty_fd, "b5", "263");
+        send_cmd_picc2(tty_fd, "b5", "283");
+        send_cmd_picc(tty_fd, "b6", "263");
+        send_cmd_picc2(tty_fd, "b6", "284");
+    }
+}
+
+//4.2.7 CLL 新增恢复出厂设置功能
+void restore_config() {
+    system("rm /home/mks/gcode_files/.cache/*");
+    system("curl -X POST http://127.0.0.1:7125/server/history/reset_totals");
+    system("curl -X DELETE 'http://127.0.0.1:7125/server/history/job?all=true'");
+    system("rm /home/mks/gcode_files/.cache/*\n");
+    system("cp /home/mks/klipper_config/config.mksini.bak /home/mks/klipper_config/config.mksini\n");
+    //ep->Send(json_run_a_gcode("BED_MESH_PROFILE REMOVE=\"default\"\nSAVE_CONFIG"));
+    //sleep(1);
+    //page_to(TJC_PAGE_RESTORING);
+    //4.2.10 CLL 恢复出厂设置不再清空热床调平数据
+    page_to(TJC_PAGE_MAIN);
+}
+
+void refresh_page_restoring() {
+    if (printer_idle_timeout_state == "Ready" && printer_webhooks_state == "ready") {
+        page_to(TJC_PAGE_MAIN);
+    }
+}
+
+//4.2.10 CLL 新增输出日志文件功能
+void print_log() {
+    if (detect_disk() == -1) {
+        page_to(TJC_PAGE_PRINT_LOG_F);
+    } else {
+        system("mkdir /home/mks/gcode_files/sda1/QD_Log");
+        system("cp /home/mks/klipper_logs/klippy.log /home/mks/gcode_files/sda1/QD_Log/klippy.log\n");
+        system("cp /home/mks/klipper_logs/moonraker.log /home/mks/gcode_files/sda1/QD_Log/moonraker.log\n");
+        page_to(TJC_PAGE_PRINT_LOG_S);
+    }
+}
+
+//4.2.10 CLL 修改断料检测开关逻辑
+void filament_sensor_switch(bool status) {
+    if (status == true) {
+        ep->Send(json_run_a_gcode("SET_FILAMENT_SENSOR SENSOR=fila ENABLE=1\n"));
+    } else if (status == false) {
+        ep->Send(json_run_a_gcode("SET_FILAMENT_SENSOR SENSOR=fila ENABLE=0\n"));
+    }
+}
+
+//4.2.10 CLL 新增共振补偿超时强制跳转
+void send_gcode(std::string command) {
+    ep->Send(json_run_a_gcode(command));
+}
+
+void refresh_page_pre_heating_2() {
+    send_cmd_txt(tty_fd, "t1", "(" + std::to_string(printer_extruder_temperature) + "/" + std::to_string(printer_extruder_target) + ")");
+    if (printer_extruder_temperature == load_target) {
+        if (load_mode == true) {
+            page_to(TJC_PAGE_LOADING);
+        } else {
+            page_to(TJC_PAGE_UNLOADING);
         }
     }
 }
