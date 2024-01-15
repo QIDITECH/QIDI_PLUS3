@@ -263,4 +263,6 @@ void send_gcode(std::string command);
 
 void refresh_page_loading();
 
+void refresh_page_pre_heating_2();
+
 #endif
