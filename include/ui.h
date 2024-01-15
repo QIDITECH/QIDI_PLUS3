@@ -695,7 +695,7 @@
 #define TJC_PAGE_PRINT_LOG_F               118
 #define TJC_PAGE_PRINT_LOG_YES             0x00
 
-#define TJC_PAGE_LOADING                   119
+#define TJC_PAGE_PRE_HEATING_2             119
 
 #define TJC_PAGE_LOAD_FINISH               120
 #define TJC_PAGE_LOAD_FINISH_YES           0x00
@@ -703,11 +703,24 @@
 
 #define TJC_PAGE_PRE_UNLOAD                121
 #define TJC_PAGE_PRE_UNLOAD_NEXT           0x00
+#define TJC_PAGE_PRE_UNLOAD_BACK           0x01
 
 #define TJC_PAGE_MEMORY_WARNING            122
 #define TJC_PAGE_MEMORY_WARNING_YES        0x00
 
 #define TJC_PAGE_UPDATING                  123
+
+#define TJC_PAGE_PRE_LOAD                  124
+#define TJC_PAGE_PRE_LOAD_NEXT             0x00
+#define TJC_PAGE_PRE_LOAD_BACK             0x01
+
+#define TJC_PAGE_LOADING                   125
+
+#define TJC_PAGE_PRE_HEATING_1             126
+#define TJC_PAGE_PRE_HEATING_1_SET_1       0x00
+#define TJC_PAGE_PRE_HEATING_1_SET_2       0x01
+#define TJC_PAGE_PRE_HEATING_1_SET_3       0x02
+#define TJC_PAGE_PRE_HEATING_1_BACK        0x04
 
 #endif
 
