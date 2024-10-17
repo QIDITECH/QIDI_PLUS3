@@ -8,15 +8,15 @@ QIDI_PLUS3 is a server-side software that interacts with the screen in the Plus3
 QIDI provides a packaged version file in the version bar next to it. Please download the compressed package file starting with PLUS.  
 We have provided multiple different versions of source code. Please select the branch you want to download, and the name of the branch is the corresponding version name.
 
-## 4.2.13 Update content
+## 4.2.15 Update content
 
 <strong><ol>
 
-<li>SOC Update: WiFi settings will be preserved after updates.</li>
-<li>Material Handling: Improved logic for material feeding and retraction.</li>
-<li>Heating Limit: Maximum chamber heating restricted to 65 degrees Celsius.</li>
-<li>Factory Reset: Also clears web-based print records and accumulated time.</li>
-<li>SSH Login: Added login info .</li>
+
+<li>Added QIDI-Link feature, supports APP scanning to bind devices.</li>
+<li>Optimized offline and online update features.</li>
+<li>Fixed the issue of USB not being read on startup.</li>
+<li>Optimized thumbnail display support for different software.</li>
 </ol></strong>
 
 ## Detailed update process

@@ -6,20 +6,61 @@ dictionary *printer_cfg = NULL;
 
 dictionary *mksversion = NULL;
 
-// std::string get_cfg_serial() {
-//     printer_cfg = iniparser_load("/home/mks/klipper_config/MKS_THR.cfg");
-//     if (printer_cfg == NULL) {
-//         std::cout << "cfg parse failure!" << std::endl;
-//         return "";
-//     }
-//     std::string sk = "mcu MKS_THR:serial";
-//     std::cout << "打开配置文件成功" << std::endl;
-//     const char *value = iniparser_getstring(mksini, sk.c_str(), "");
-//     return (std::string)value;
-// }
+bool file_exists(const char *path) {
+    struct stat buffer;
+    return (stat(path, &buffer) == 0);
+}
 
-int mksini_load() {
+void ensure_directory_exists(const std::string &path) {
+    struct stat info;
+    if (stat(path.c_str(), &info) != 0 || !(info.st_mode & S_IFDIR)) {
+        mkdir(path.c_str(), 0755);
+    }
+}
+
+bool is_file_locked(const char *path) {
+    int fd = open(path, O_WRONLY | O_CREAT, 0666);
+    if (fd == -1) {
+        return true;
+    }
+    close(fd);
+    return false;
+}
+
+int mksini_load() 
+{
+    if (!file_exists(INIPATH)) {
+        std::cout << "Config file does not exist. Creating a new one." << std::endl;
+        FILE *file = fopen(INIPATH, "w");
+        if (file == NULL) {
+            std::cerr << "Failed to create the config file!" << std::endl;
+            return -1;
+        }
+        fclose(file);
+    }
+
     mksini = iniparser_load(INIPATH);
+
+    if (mksini == NULL) {
+        std::cout << "Ini parse failure!" << std::endl;
+        return -1;
+    }
+
+    return 0;
+}
+
+int mksini_load_from_path(const char *path) {
+    if (!file_exists(path)) {
+        std::cout << "Config file does not exist. Creating a new one." << std::endl;
+        FILE *file = fopen(path, "w");
+        if (file == NULL) {
+            std::cerr << "Failed to create the config file!" << std::endl;
+            return -1;
+        }
+        fclose(file);
+    }
+
+    mksini = iniparser_load(path);
 
     if (mksini == NULL) {
         std::cout << "Ini parse failure!" << std::endl;
@@ -57,10 +98,49 @@ bool mksini_getboolean(std::string section, std::string key, int notfound) {
     return (value == 0) ? false : true;
 }
 
+// 用于读取指定节的所有字段并存储在map中
+std::map<std::string, std::string> mksini_getsection(const std::string &section) {
+    std::map<std::string, std::string> section_map;
+
+    int keys = iniparser_getsecnkeys(mksini, section.c_str());
+    if (keys <= 0) {
+        std::cout << "Section " << section << " not found or empty!" << std::endl;
+        return section_map;
+    }
+
+    const char **key_list = new const char *[keys];
+    iniparser_getseckeys(mksini, section.c_str(), key_list);
+    for (int i = 0; i < keys; ++i) {
+        std::string key(key_list[i] + section.length() + 1); // 移除section前缀
+        std::string value = mksini_getstring(section, key, "");
+        if (!value.empty()) {
+            section_map[key] = value;
+        }
+    }
+    delete[] key_list;
+
+    return section_map;
+}
+
 int mksini_set(std::string section, std::string key, std::string value) {
+    int ret = 0;
+
+	// set section
+	ret = iniparser_set(mksini, section.c_str(), NULL);
+	if (ret < 0) {
+		fprintf(stderr, "cannot set section %s in: %s\n", section, INIPATH);
+        return -1;
+	}
+
     std::string sk = section + ":" + key;
-    int ret;
-    ret = iniparser_set(mksini, sk.c_str(), value.c_str());
+
+	// set key/value pair 
+	ret = iniparser_set(mksini, sk.c_str(), value.c_str());
+	if (ret < 0) {
+		fprintf(stderr, "cannot set key/value %s in: %s\n", sk, INIPATH);
+        return -1;
+	}
+
     return ret;
 }
 
@@ -71,13 +151,33 @@ void mksini_unset(std::string section, std::string key) {
 
 // 保存到配置文件
 void mksini_save() {
-    FILE *ini = fopen(INIPATH, "w");
-    if (ini == NULL) {
-        printf("[error] open mksini failed");
-        return;
+    ensure_directory_exists(CONFIG_PATH);
+
+    int retries = 5;
+    while (retries--) {
+        if (!is_file_locked(INIPATH)) {
+            FILE *ini = fopen(INIPATH, "w");
+            if (ini == NULL) {
+                std::cerr << "open mksini failed" << std::endl;
+                return;
+            }
+            iniparser_dump_ini(mksini, ini);
+            fclose(ini);
+            return;
+        }
+        sleep(1);
     }
-    iniparser_dump_ini(mksini, ini);
-    fclose(ini);
+    std::cerr << "save mksini failed after multiple attempts" << std::endl;
+}
+
+// 单次完整调用的set 包含载入保存和释放
+int mksini_update(std::string section, std::string key, std::string value)
+{
+    mksini_load();
+    int result = mksini_set(section, key, value);
+    mksini_save();
+    mksini_free();
+    return result;
 }
 
 int mksversion_load() {
@@ -93,6 +193,23 @@ int mksversion_load() {
 
 void mksversion_free() {
     iniparser_freedict(mksversion);
+}
+
+// CLL 用于获取在线更新信息
+int updateini_load() {
+    return mksini_load_from_path("/root/makerbase-client/update_info.ini");
+}
+
+// CLL 用于获取在线更新进度
+int progressini_load() {
+    mksini = iniparser_load("/root/auto_update/update_progress.ini");
+    
+    if (mksini == NULL) {
+        std::cout << "Ini parse failure" << std::endl;
+        return -1;
+    }
+
+    return 0;
 }
 
 std::string mksversion_mcu(std::string def) {

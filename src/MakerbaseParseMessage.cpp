@@ -11,11 +11,6 @@
 #include "../include/mks_printer.h"
 #include "../include/mks_file.h"
 #include "../include/mks_gcode.h"
-// #include "../include/systeminfo.h"
-// #include "../include/printer.h"
-// #include "../include/file.h"
-// #include "../include/job.h"
-// #include "../include/tjc_event.h"
 #include "../include/ui.h"
 
 extern MakerbaseClient *ep;
@@ -200,7 +195,7 @@ void *json_parse(void *arg) {
             refresh_page_show();
         }
         //usleep(1000);
-        usleep(5);
+        usleep(50);
     }
     // pthread_exit(NULL);
 }
