@@ -331,6 +331,7 @@ void set_page_files_show_list(int pages) {
 }
 
 void get_sub_dir_files_list(int button) {
+
     if ("[d]" == page_files_list_show_type[button]) {
         page_files_path_stack.push(page_files_path);
         page_files_path = page_files_path + "/" + page_files_list_show_name[button];
@@ -340,29 +341,28 @@ void get_sub_dir_files_list(int button) {
         refresh_page_files(page_files_current_pages);
         refresh_page_files_list_2();
     } else if ("[f]" == page_files_list_show_type[button]) {
+        // ---Fix show page bug---
+        page_to(TJC_PAGE_PREVIEW);
+        clear_cp0_image();
+        // ---Fix show page bug--- 
         jump_to_print = false;
         show_preview_complete = false;
-        // sdcard_reset_file();
         page_files_path_stack.push(page_files_path);
         page_files_print_files_path = page_files_path + "/" + page_files_list_show_name[button];
-        // page_files_print_files_path = page_files_path + "/sda1/" + page_files_list_show_name[button];
         page_files_folder_layers++;
-        // page_files_last_printing_files_files_name = page_files_list_show_name[button];
-        // page_files_last_printing_files_dir = page_files_root_path + page_files_path;
         get_file_estimated_time(page_files_print_files_path.substr(1));
-        page_to(TJC_PAGE_PREVIEW);
-        // generate_gimage(page_files_print_files_path);
-        // generate_simage(page_files_print_files_path);
     } else if ("[c]" == page_files_list_show_type[button]) { //4.2.5 CLL 新增打印过文件会在文件列表第一页首个显示
+        // ---Fix show page bug---
+        page_to(TJC_PAGE_PREVIEW);
+        clear_cp0_image();
+        // ---Fix show page bug--- 
         jump_to_print = false;
         show_preview_complete = false;
         page_files_path_stack.push(page_files_path);
         page_files_print_files_path =page_files_path + "/.cache/" + page_files_list_show_name[button];
         page_files_folder_layers++;
         get_file_estimated_time(page_files_print_files_path.substr(1));
-        page_to(TJC_PAGE_PREVIEW);
     }
-    // std::cout << "$$$$$$$$$$$$$$$$$$$$$$$$$" << "/home/mks/gcode_files" + page_files_print_files_path << "$$$$$$$$$$$$$$$$$$$$$" << std::endl;
 }
 
 void get_parenet_dir_files_list() {
@@ -455,4 +455,13 @@ void parse_file_estimated_time_send(nlohmann::json response) {
 		MKSLOG_RED("simage");
     }
     mks_file_parse_finished = true;
+}
+
+int output_imgdata(std::string thumbpath, int size) {
+    std::string path = thumbpath;
+    std::string temp= "python3 /home/mks/gene4.py \"" + path + "\" /home/mks/tjc " + std::to_string(size);
+    std::cout << temp << std::endl;
+    const char* command = temp.c_str();
+    system(command);
+    return 0;
 }

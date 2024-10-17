@@ -12,8 +12,10 @@ int mks_heater_bed_target;
 int mks_hot_target;
 std::string mks_babystep_value;
 std::string mks_version_soc;
+/*----------TODO: 待删除变量------------------*/
 std::string mks_version_mcu;
 std::string mks_version_ui;
+/*----------TODO: 待删除变量------------------*/
 
 // webhooks
 std::string printer_webhooks_state;             
@@ -173,7 +175,8 @@ bool filament_switch_sensor_fila_filament_detected = false;
 bool filament_switch_sensor_fila_enabled = false;
 
 // output_pin caselight
-float printer_caselight_value = 0;
+//4.3.4 CLL 修复开机读取不到状态
+float printer_caselight_value = -1;
 
 // probe
 float printer_probe_x_zoffset = 0.0;
@@ -233,21 +236,23 @@ void parse_printer_heater_fan_my_nozzle_fan1(nlohmann::json heater_fan_my_nozzle
     }
 }
 
+// TODO: 修改风扇0\1\2转速获取订阅，key值
+/*
+    key: "speed" -> "value"
+    output_pin fan0
+*/
 void parse_printer_out_pin_fan0(nlohmann::json out_pin_fan0) {
     if (out_pin_fan0["value"] != nlohmann::detail::value_t::null) {
         printer_out_pin_fan0_value = out_pin_fan0["value"];
     }
     std::cout << "printer_out_pin_fan0_value " << printer_out_pin_fan0_value << std::endl;
 };
-
 void parse_printer_out_pin_fan2(nlohmann::json out_pin_fan2) {
     if (out_pin_fan2["value"] != nlohmann::detail::value_t::null) {
         printer_out_pin_fan2_value = out_pin_fan2["value"];
     }
     std::cout << "printer_out_pin_fan2_value " << printer_out_pin_fan2_value << std::endl;
 };
-
-//2.1.2 CLL 新增fan3
 void parse_printer_out_pin_fan3(nlohmann::json out_pin_fan3) {
     if (out_pin_fan3["value"] != nlohmann::detail::value_t::null) {
         printer_out_pin_fan3_value = out_pin_fan3["value"];
@@ -365,7 +370,7 @@ void parse_webhooks(nlohmann::json webhooks) {
     if (webhooks["state_message"] != nlohmann::detail::value_t::null) {
         printer_webhooks_state_message = webhooks["state_message"];
     }
-    MKSLOG_RED("State message: %s", printer_webhooks_state_message);
+    MKSLOG_RED("State message: %s", printer_webhooks_state_message.c_str());
 }
 
 void parse_gcode_move(nlohmann::json gcode_move) {
@@ -510,14 +515,15 @@ void parse_subscribe_objects_status(nlohmann::json status) {
         parse_idle_timeout(status["idle_timeout"]);
     }
     if (status["bed_mesh"] != nlohmann::detail::value_t::null) {
-        std::cout << status["bed_mesh"] << std::endl;
+        // TODO: 不想打印的信息
+        // std::cout << status["bed_mesh"] << std::endl;
         parse_bed_mesh(status["bed_mesh"]);
         //4.2.2 CLL 调平数据显示最多36个点
-        for (int i = 0; i < 6; i++) {
-            for (int j = 0; j < 6; j++) {
-                std::cout << "############# Points :" << i << ", " << j << " " << printer_bed_mesh_profiles_mks_points[i][j] << std::endl;
-            }
-        }
+        // for (int i = 0; i < 6; i++) {
+        //     for (int j = 0; j < 6; j++) {
+        //         std::cout << "############# Points :" << i << ", " << j << " " << printer_bed_mesh_profiles_mks_points[i][j] << std::endl;
+        //     }
+        // }
     }
     if (status["webhooks"] != nlohmann::detail::value_t::null) {
         // MKSLOG("Webhooks update");
@@ -539,8 +545,8 @@ void parse_subscribe_objects_status(nlohmann::json status) {
         // MKSLOG("Heater bed update");
         parse_heater_bed(status["heater_bed"]);
     }
+    // TODO: 修改原有的解析函数：heater_generic chamber -> heater_generic hot
     if (status["heater_generic hot"] != nlohmann::detail::value_t::null) {
-        // MKSLOG("Heater generic hot update");
         parse_heater_generic_hot(status["heater_generic hot"]);
     }
     if (status["fan"] != nlohmann::detail::value_t::null) {
@@ -564,13 +570,15 @@ void parse_subscribe_objects_status(nlohmann::json status) {
     if (status["heater_fan my_nozzle_fan1"] != nlohmann::detail::value_t::null) {
         parse_printer_heater_fan_my_nozzle_fan1(status["heater_fan my_nozzle_fan1"]);
     }
+    // TODO: 风扇1解析信息修改。 fan_generic cooling_fan -> output_pin fan0
     if (status["output_pin fan0"] != nlohmann::detail::value_t::null) {
         parse_printer_out_pin_fan0(status["output_pin fan0"]);
     }
+    // TODO: 风扇2解析信息修改。 fan_generic auxiliary_cooling_fan -> output_pin fan2
     if (status["output_pin fan2"] != nlohmann::detail::value_t::null) {
         parse_printer_out_pin_fan2(status["output_pin fan2"]);
     }
-    //2.1.2 CLL 新增fan3
+    // TODO: 风扇3解析信息修改。 fan_generic chamber_circulation_fan -> output_pin fan3
     if (status["output_pin fan3"] != nlohmann::detail::value_t::null) {
         parse_printer_out_pin_fan3(status["output_pin fan3"]);
     }
@@ -591,7 +599,10 @@ void parse_subscribe_objects_status(nlohmann::json status) {
 nlohmann::json subscribe_objects_status() {
     nlohmann::json objects;
     objects["extruder"];
+    /*---------------变量名修改----------------*/
+    // objects["heater_generic chamber"];
     objects["heater_generic hot"];
+    /*---------------变量名修改----------------*/
     objects["heater_bed"];
     objects["gcode_move"];
     objects["fan"] = {"speed"};
@@ -608,10 +619,14 @@ nlohmann::json subscribe_objects_status() {
     objects["bed_mesh"];
     objects["heater_fan my_nozzle_fan1"];
     objects["filament_switch_sensor fila"] = {"filament_detected", "enabled"};
+    /*---------------变量名修改----------------*/
+    // objects["fan_generic cooling_fan"] = {"speed", "rpm"};
+    // objects["fan_generic auxiliary_cooling_fan"] = {"speed", "rpm"};
+    // objects["fan_generic chamber_circulation_fan"] = {"speed", "rpm"};
     objects["output_pin fan0"] = {"value"};
     objects["output_pin fan2"] = {"value"};
-    //2.1.2 CLL 新增fan3
     objects["output_pin fan3"] = {"value"};
+    /*---------------变量名修改----------------*/
 
     objects["output_pin caselight"];
     objects["output_pin sound"];

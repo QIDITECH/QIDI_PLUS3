@@ -2,6 +2,7 @@
 #include "../include/send_msg.h"
 #include "../include/mks_log.h"
 #include "../include/event.h"
+#include "../include/app_client.h"
 #include "../include/mks_file.h"
 #include "../include/mks_preview.h"
 #include "../include/mks_update.h"
@@ -10,6 +11,10 @@
 #include "../include/MakerbaseNetwork.h"
 #include "../include/MakerbaseSerial.h"
 #include "../include/MakerbaseWiFi.h"
+#include "../include/MakerbaseParseIni.h"
+
+#include "../include/system_setting.h"
+#include "../include/online_update.h"
 
 #include <stack>
 
@@ -18,24 +23,33 @@
 
 int tty_fd = -1;
 
+/* wifi */
+extern struct mks_wifi_status_result_t status_result;
+extern struct mks_wifi_status_t wpa_status;
+
+//B
+bool no_error = false;
+extern bool is_first_refresh_device_code;
+std::string tmp_username = "";
+bool is_in_qr_page = false;
+bool is_in_user_page = false;
+extern std::string bind_code;
+extern std::string user_token;
+extern int lang_index;
+
 // 补偿值
 extern bool fresh_page_set_zoffset_data;
 
 // update
-extern bool detected_soc_data;
+extern bool detected_plus3_soc_data;
 extern bool detected_mcu_data;
-extern bool detected_ui_data;
+extern bool detected_plus3_ui_data;
 
-// bool start_to_printing = false;
 // preview
 extern std::vector<std::string> gimage;
 extern std::vector<std::string> simage;
 
 extern std::string str_gimage;
-
-// extern std::vector<std::string> gimage_temp;
-// extern std::vector<std::string> simage_temp;
-// preview
 
 // wifi start
 extern int page_wifi_ssid_list_pages;
@@ -136,6 +150,12 @@ extern bool jump_to_print;
 int load_target;
 bool load_mode;
 
+extern int mks_connection_method;
+extern bool qr_refreshed;
+
+extern int current_server_page;
+extern int total_server_count;
+
 void parse_cmd_msg_from_tjc_screen(char *cmd) {
     event_id = cmd[0];
     MKSLOG_BLUE("#########################%s", cmd);
@@ -202,6 +222,36 @@ void parse_cmd_msg_from_tjc_screen(char *cmd) {
         page_to(TJC_PAGE_UPDATED);
         break;
 
+    //B
+
+    case 0xf9:
+        is_in_user_page = true;
+        MKSLOG_RED("Enter USER Page");
+        break;
+
+    case 0xfa:
+        is_in_user_page = false;
+        bind_code = "";
+        MKSLOG_RED("Leave USER Page");
+        if (cmd[1] == 0xf9) {
+            is_in_user_page = true;
+            MKSLOG_RED("Enter USER Page");
+        }
+        break;
+
+    case 0xfb:
+        is_in_qr_page = true;
+        lang_index = cmd[1];
+        MKSLOG_RED("0x%x 0x%x 0x%x 0x%x ", cmd[0], cmd[1], cmd[2], cmd[3]);
+        MKSLOG_RED("Enter QR Page");
+        break;
+
+    case 0xfc:
+        is_in_qr_page = false;
+        bind_code = "";
+        MKSLOG_RED("Leave QR Page");
+        break;
+
     case 0xfd:
         break;
     case 0xfe:
@@ -243,8 +293,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_OPEN_LANGUAGE_SKIP:
             //2023.5.12 CLL 开机引导跳过确认弹窗
             page_to(TJC_PAGE_OPEN_POP_1);
-            //page_to(TJC_PAGE_MAIN);
-            //set_mks_oobe_enabled(false);
             break;
 
         default:
@@ -257,10 +305,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
     case TJC_PAGE_OPEN_VIDEO_1:
         switch (widget_id)
         {
-        case TJC_PAGE_OPEN_VIDEO_1_PREVIOUS:
-            // page_to(TJC_PAGE_OPEN_LANGUAGE);
-            break;
-
         case TJC_PAGE_OPEN_VIDEO_1_RIGHT:
             page_to(TJC_PAGE_OPEN_VIDEO_2);
             break;
@@ -274,10 +318,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
     case TJC_PAGE_OPEN_VIDEO_2:
         switch (widget_id)
         {
-        case TJC_PAGE_OPEN_VIDEO_2_PREVIOUS:
-            // page_to(TJC_PAGE_OPEN_LANGUAGE);
-            break;
-
         case TJC_PAGE_OPEN_VIDEO_2_RIGHT:
             page_to(TJC_PAGE_OPEN_VIDEO_3);
             break;
@@ -291,24 +331,9 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
     case TJC_PAGE_OPEN_VIDEO_3:
         switch (widget_id)
         {
-        case TJC_PAGE_OPEN_VIDEO_3_PREVIOUS:
-            // page_to(TJC_PAGE_OPEN_LANGUAGE);
-            break;
-
         case TJC_PAGE_OPEN_VIDEO_3_RIGHT:
-            // page_to(TJC_PAGE_OPEN_VIDEO_4);
-            // start_auto_level();
-            //2023.5.11 CLL 修改开机引导自动调平页面跳转
-            //page_to(TJC_PAGE_NULL_2);
-            //2.1.2 CLL 修改开机引导流程
-            //page_to(TJC_PAGE_OPEN_HEATER_BED);
             open_heater_bed_up();
             break;
-
-        case TJC_PAGE_OPEN_VIDEO_3_EXTRUDE:
-            open_start_extrude();
-            break;
-
         default:
             break;
         }
@@ -324,24 +349,8 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_OPEN_VIDEO_4_DOWN:
             send_gcode("G91\nG0 Z10 F600\nG90\n");
             break;
-
-        case TJC_PAGE_OPEN_VIDEO_4_PREVIOUS:
-            // page_to(TJC_PAGE_OPEN_LANGUAGE);
-            break;
         
         case TJC_PAGE_OPEN_VIDEO_4_NEXT:
-            // page_to(TJC_PAGE_OPEN_LEVELINIT);
-            // start_pre_auto_level = false;
-            // start_auto_level();
-            /*2.1.2 CLL 修改开机引导流程
-            if (printer_idle_timeout_state == "Ready") {
-                pre_open_auto_level_init();
-            } else {
-
-            }
-            */
-            // page_to(TJC_PAGE_OPEN_HEATER_BED);
-            // CLL 修改开机引导不再调平和共振补偿
             page_to(TJC_PAGE_FILAMENT_VIDEO_1);
             break;
 
@@ -351,16 +360,16 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         break;
 
     // 开机第五项
-    case TJC_PAGE_OPEN_LEVELINIT:
-        switch (widget_id)
-        {
-        default:
-            break;
-        }
-        break;
+    // case TJC_PAGE_OPEN_LEVELINIT:
+    //     switch (widget_id)
+    //     {
+    //     default:
+    //         break;
+    //     }
+    //     break;
 
-    case TJC_PAGE_OPEN_LEVELING:
-        break;
+    // case TJC_PAGE_OPEN_LEVELING:
+    //     break;
 
     // 开机第六项
     case TJC_PAGE_OPEN_LEVEL:
@@ -434,7 +443,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_NULL_2_ENTER:
             //2023.4.27 防止开机引导卡死
             //2023.4.28 删除"取出垫片"界面
-            //page_to(TJC_PAGE_OPEN_VIDEO_4);
             page_to(TJC_PAGE_OPEN_LEVELINIT);
             open_null_2_enter();
             pre_open_auto_level_init();
@@ -560,18 +568,18 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             
             // 屏蔽内置文件系统
             //if (detect_disk() == 0) { //2023.5.8 CLL 去除U盘判断条件
-                page_to(TJC_PAGE_FILE_LIST_1);
-                // printer_set_babystep();
-                page_files_pages = 0;
-                page_files_current_pages = 0;
-                page_files_folder_layers = 0;
-                page_files_previous_path = "";
-                page_files_root_path = DEFAULT_DIR;
-                // page_files_path = "/sda1";
-                page_files_path = "";
-                refresh_page_files(page_files_current_pages);
-                refresh_page_files_list_1();
-                get_object_status();
+            page_to(TJC_PAGE_FILE_LIST_1);
+            // printer_set_babystep();
+            page_files_pages = 0;
+            page_files_current_pages = 0;
+            page_files_folder_layers = 0;
+            page_files_previous_path = "";
+            page_files_root_path = DEFAULT_DIR;
+            // page_files_path = "/sda1";
+            page_files_path = "";
+            refresh_page_files(page_files_current_pages);
+            refresh_page_files_list_1();
+            get_object_status();
             //} else {
             //    page_to(TJC_PAGE_DISK_DETECT_2);
             //}
@@ -621,42 +629,34 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             break;
 
         case TJC_PAGE_FILE_LIST_1_BTN_1:
-            clear_cp0_image();
             get_sub_dir_files_list(0);
             break;
 
         case TJC_PAGE_FILE_LIST_1_BTN_2:
-            clear_cp0_image();
             get_sub_dir_files_list(1);
             break;
 
         case TJC_PAGE_FILE_LIST_1_BTN_3:
-            clear_cp0_image();
             get_sub_dir_files_list(2);
             break;
 
         case TJC_PAGE_FILE_LIST_1_BTN_4:
-            clear_cp0_image();
             get_sub_dir_files_list(3);
             break;
 
         case TJC_PAGE_FILE_LIST_1_BTN_5:
-            clear_cp0_image();
             get_sub_dir_files_list(4);
             break;
 
         case TJC_PAGE_FILE_LIST_1_BTN_6:
-            clear_cp0_image();
             get_sub_dir_files_list(5);
             break;
 
         case TJC_PAGE_FILE_LIST_1_BTN_7:
-            clear_cp0_image();
             get_sub_dir_files_list(6);
             break;
 
         case TJC_PAGE_FILE_LIST_1_BTN_8:
-            clear_cp0_image();
             get_sub_dir_files_list(7);
             break;
 
@@ -737,8 +737,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
 
         case TJC_PAGE_FILE_LIST_2_BTN_NEXT:
             if (page_files_current_pages < page_files_pages) {
-                // std::cout << "############################" << page_files_current_pages << std::endl;
-                // page_files_current_pages = (page_files_current_pages + 1) % (page_files_pages + 1);
                 page_files_current_pages += 1;
                 refresh_page_files(page_files_current_pages);
                 refresh_page_files_list_2();
@@ -1101,8 +1099,8 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
 
         case TJC_PAGE_MOVE_NETWORK:
             // set_move_dist(0.1);             // 恢复步长为0.1
-            go_to_network();
-            // send_cmd_txt(tty_fd, "t0", get_wlan0_ip().data());
+            page_to(TJC_PAGE_NETWORK_SET);
+            refresh_lan_model_frpc();
             break;
 
         case TJC_PAGE_MOVE_01:
@@ -1185,24 +1183,16 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         switch (widget_id)
         {
         case TJC_PAGE_FILAMENT_BTN_FILE:
-            //if (detect_disk() == 0) {  //2023.5.8 CLL 去除U盘判断条件
-                page_to(TJC_PAGE_FILE_LIST_1);
-                // printer_set_babystep();
-                page_files_pages = 0;
-                page_files_current_pages = 0;
-                page_files_folder_layers = 0;
-                page_files_previous_path = "";
-                page_files_root_path = DEFAULT_DIR;
-                // page_files_path = "/sda1";
-                page_files_path = "";
-                refresh_page_files(page_files_current_pages);
-                refresh_page_files_list_1();
-
-                get_object_status();
-            //} else {
-            //    page_to(TJC_PAGE_DISK_DETECT_2);
-            //}
-            
+            page_to(TJC_PAGE_FILE_LIST_1);
+            page_files_pages = 0;
+            page_files_current_pages = 0;
+            page_files_folder_layers = 0;
+            page_files_previous_path = "";
+            page_files_root_path = DEFAULT_DIR;
+            page_files_path = "";
+            refresh_page_files(page_files_current_pages);
+            refresh_page_files_list_1();
+            get_object_status();
             break;
 
         case TJC_PAGE_FILAMENT_BTN_HOME:
@@ -1223,8 +1213,8 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             break;
 
         case TJC_PAGE_FILAMENT_NETWORK:
-            go_to_network();
-            // send_cmd_txt(tty_fd, "t0", get_wlan0_ip().data());
+            page_to(TJC_PAGE_NETWORK_SET);
+            refresh_lan_model_frpc();
             break;
 
         case TJC_PAGE_FILAMENT_BTN_10:
@@ -1242,27 +1232,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_FILAMENT_UNLOAD:
             //2023.5.12 CLL 退料前解锁电机
             move_motors_off();
-            //2023.4.26-1 修改退料流程
-            /*
-            if ((printer_extruder_temperature >= (printer_extruder_target - 5))&&(printer_extruder_temperature <= (printer_extruder_target + 5))) {
-                page_filament_unload_button = true;
-                page_to(TJC_PAGE_FILAMENT_POP_4);
-                //4.2.4 CLL 修复断料检测与退料冲突bug
-                if (filament_switch_sensor_fila_enabled == 1) {
-                    previous_filament_sensor_state = true;
-                    set_filament_sensor();
-                }
-            }else {
-                page_to(TJC_PAGE_FILAMENT_POP);
-            }
-            page_filament_unload_button = true;
-            //page_to(TJC_PAGE_FILAMENT_POP_4);
-            //page_filament_unload_button = true;
-            // filament_unload();
-            if (page_filament_unload_button == true) {
-                page_filament_unload_button = false;
-            }
-            */
             load_mode = false;
             page_to(TJC_PAGE_PRE_HEATING_1);
             break;
@@ -1321,8 +1290,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_FILAMENT_BTN_FAN_2:
             std::cout << "按下第二个风扇" << std::endl;
             filament_fan2();
-            // filament_keyboard_enabled = true;
-            // page_to(TJC_PAGE_KB_FILAMENT_1);
             break;
 
         //2.1.2 CLL 新增fan3
@@ -1383,33 +1350,14 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         }
         break;
 
-    case TJC_PAGE_FILAMENT_POP_2:
-        switch (widget_id)
-        {
-        case TJC_PAGE_FILAMENT_POP_2_YES:
-            // filament_unload();
-            // page_to(TJC_PAGE_FILAMENT);
-            filament_pop_2_yes();
-            break;
-
-        default:
-            break;
-        }
-        break;
-
     case TJC_PAGE_FILAMENT_POP_4:
         switch (widget_id)
         {
         case TJC_PAGE_FILAMENT_POP_4_OK:
-            // filament_unload();
-            // page_to(TJC_PAGE_FILAMENT);
-            //2023.4.22-1 修改退料流程
-            //filament_pop_2_yes();
             //4.2.4 CLL 修复断料检测与退料冲突bug
             printer_idle_timeout_state = "Printing";
             filament_unload();
             //2.1.2 CLL 新增退料界面
-            //page_to(TJC_PAGE_FILAMENT);
             if (printer_print_stats_state == "paused") {
                 send_cmd_pic(tty_fd, "unloading.b[0]", "438");
             } else {
@@ -1491,8 +1439,8 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_LEVEL_MODE_NETWORK:
             get_object_status();
             sub_object_status();
-            go_to_network();
-            // send_cmd_txt(tty_fd, "t0", get_wlan0_ip().data());
+            page_to(TJC_PAGE_NETWORK_SET);
+            refresh_lan_model_frpc();
             break;
 
         case TJC_PAGE_LEVEL_MODE_AUTO_LEVEL:
@@ -1505,7 +1453,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_LEVEL_MODE_MANUAL_LEVEL:
             sub_object_status();
             get_object_status();
-            level_mode = TJC_PAGE_MANUAL_LEVEL;
             page_to(TJC_PAGE_LEVELING_NULL_2);
             break;
         
@@ -1605,15 +1552,8 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
                 pre_auto_level_init();
                 break;
 
-            case TJC_PAGE_MANUAL_LEVEL:
-                printer_idle_timeout_state = "Printing";
-                pre_manual_level_init();
-                break;
-
             case TJC_PAGE_SET_ZOFFSET:
-                // pre_set_zoffset_init();
                 page_to(TJC_PAGE_CHANGE_ZOFFSET);
-                // page_to(TJC_PAGE_SET_ZOFFSET);
                 break;
             
             default:
@@ -1691,68 +1631,11 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         {
         case TJC_PAGE_AUTO_FINISH_YES:
             //4.2.2 CLL 修复自动调平页面卡住
-            //if (auto_level_button_enabled == true || printer_idle_timeout_state == "Idle") {
             auto_level_button_enabled = false;
             std::cout << "自动调平已完成" << std::endl;
             finish_auto_level();
-                // page_to(TJC_PAGE_SAVING);
-            //}
             break;
 
-        default:
-            break;
-        }
-        break;
-
-    case TJC_PAGE_MANUAL_LEVEL:
-        switch (widget_id)
-        {
-        case TJC_PAGE_MANUAL_LEVEL_001:
-            set_manual_level_dist(0.01);
-            break;
-        
-        case TJC_PAGE_MANUAL_LEVEL_0025:
-            // set_manual_level_dist(0.025);
-            set_manual_level_dist(0.05);
-            break;
-
-        case TJC_PAGE_MANUAL_LEVEL_005:
-            // set_manual_level_dist(0.05);
-            set_manual_level_dist(0.1);
-            break;
-
-        case TJC_PAGE_MANUAL_LEVEL_1:
-            set_manual_level_dist(1);
-            break;
-
-        case TJC_PAGE_MANUAL_LEVEL_DOWN:
-            start_manual_level_dist(true);
-            break;
-
-        case TJC_PAGE_MANUAL_LEVEL_UP:
-            start_manual_level_dist(false);
-            break;
-
-        case TJC_PAGE_MANUAL_LEVEL_ENTER:
-            start_manual_level();
-            break;
-
-        default:
-            break;
-        }
-        break;
-
-    case TJC_PAGE_MANUAL_FINISH:
-        switch (widget_id)
-        {
-        case TJC_PAGE_MANUAL_FINISH_YES:
-            // if (manual_level_button_enabled == true) {
-                // manual_level_button_enabled = false;
-                std::cout << "手动调平已完成" << std::endl;
-                finish_manual_level();
-            // }
-            break;
-        
         default:
             break;
         }
@@ -1765,7 +1648,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             //2.1.2 CLL 在打印设置zoffset界面也会有断料提醒弹窗
             if (previous_page_id == TJC_PAGE_PRINTING || previous_page_id == TJC_PAGE_PRINT_ZOFFSET) {
                 if (get_filament_detected() == false) {
-                    // set_print_pause();
                     page_to(TJC_PAGE_PRINT_FILAMENT);
                 } else {
                     page_to(TJC_PAGE_PRINT_FILAMENT);
@@ -1976,37 +1858,30 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         
         case TJC_PAGE_WIFI_LIST_2_BTN_HOME:
             page_to(TJC_PAGE_MAIN);
-
             mks_wpa_cli_close_connection();
             break;
 
         case TJC_PAGE_WIFI_LIST_2_BTN_SERVICE:
             page_to(TJC_PAGE_LANGUAGE);
-
             mks_wpa_cli_close_connection();
             break;
 
         case TJC_PAGE_WIFI_LIST_2_MOVE:
             page_to(TJC_PAGE_MOVE);
-
             mks_wpa_cli_close_connection();
             break;
 
         case TJC_PAGE_WIFI_LIST_2_FILAMENT:
             page_to(TJC_PAGE_FILAMENT);
-
             mks_wpa_cli_close_connection();
             break;
 
         case TJC_PAGE_WIFI_LIST_2_AUTO_LEVEL:
             page_to(TJC_PAGE_LEVEL_MODE);
-
             mks_wpa_cli_close_connection();
             break;
 
         case TJC_PAGE_WIFI_LIST_2_PREVIOUS:
-            // std::cout << "page_wifi_current_pages = " << page_wifi_current_pages << std::endl;
-            // std::cout << "page_wifi_ssid_list_pages = " << page_wifi_ssid_list_pages << std::endl;
             if (page_wifi_current_pages > 0) {
                 std::cout << "page_wifi_current_pages = " << page_wifi_current_pages << std::endl;
                 std::cout << "page_wifi_ssid_list_pages = " << page_wifi_ssid_list_pages << std::endl;
@@ -2017,8 +1892,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             break;
 
         case TJC_PAGE_WIFI_LIST_2_NEXT:
-            // std::cout << "page_wifi_current_pages = " << page_wifi_current_pages << std::endl;
-            // std::cout << "page_wifi_ssid_list_pages = " << page_wifi_ssid_list_pages << std::endl;
             if (page_wifi_current_pages < page_wifi_ssid_list_pages - 1) {
                 std::cout << "page_wifi_current_pages = " << page_wifi_current_pages << std::endl;
                 std::cout << "page_wifi_ssid_list_pages = " << page_wifi_ssid_list_pages << std::endl;
@@ -2033,8 +1906,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
                 get_wifi_list_ssid(0);
                 printing_wifi_keyboard_enabled = true;
                 page_to(TJC_PAGE_WIFI_KEYBOARD);
-            } else {
-
             }
             break;
 
@@ -2073,16 +1944,17 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         case TJC_PAGE_WIFI_LIST_2_REFRESH:
             std::cout << "################## 按下刷新按钮" << std::endl;
             scan_ssid_and_show();
-            //4.2.3 CLL 修复WiFi刷新bug
-            //std::cout << "等待延时测试3s..." << std::endl;
-            //sleep(3);
-            //scan_ssid_and_show();
             break;
 
         case TJC_PAGE_WIFI_LIST_2_EHTNET:
             set_mks_net_eth();
             mks_page_internet_ip = get_eth0_ip();
             page_to(TJC_PAGE_INTERNET);
+            break;
+
+        case TJC_PAGE_WIFI_LIST_2_BACK:
+            page_to(TJC_PAGE_NETWORK_SET);
+            refresh_lan_model_frpc();
             break;
 
         default:
@@ -2201,8 +2073,8 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             break;
 
         case TJC_PAGE_INTERNET_WIFI:
-            set_mks_net_wifi();
-            go_to_network();
+            page_to(TJC_PAGE_NETWORK_SET);
+            refresh_lan_model_frpc();
             break;
         
         default:
@@ -2482,45 +2354,22 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         {
         //2023.4.25-1 隐藏开机引导
         case TJC_PAGE_ABOUT_S_BTN:
-                set_mks_oobe_enabled(true);
+            set_mks_oobe_enabled(true);
             break;
 
         case TJC_PAGE_ABOUT_BTN_FILE:
-
-            /*
-            page_to(TJC_PAGE_FILE_LIST_1);
-            printer_set_babystep();
-            page_files_pages = 0;
-            page_files_current_pages = 0;
-            page_files_folder_layers = 0;
-            page_files_previous_path = "";
-            page_files_root_path = DEFAULT_DIR;
-            page_files_path = "";
-            refresh_page_files(page_files_current_pages);
-            refresh_page_files_list_1();
-
-            get_object_status();
-            */
             if (printer_webhooks_state != "shutdown" && printer_webhooks_state != "error") {
-            //if (detect_disk() == 0) {  //2023.5.8 CLL 去除U盘判断条件
                 page_to(TJC_PAGE_FILE_LIST_1);
-                // printer_set_babystep();
                 page_files_pages = 0;
                 page_files_current_pages = 0;
                 page_files_folder_layers = 0;
                 page_files_previous_path = "";
                 page_files_root_path = DEFAULT_DIR;
-                // page_files_path = "/sda1";
                 page_files_path = "";
                 refresh_page_files(page_files_current_pages);
                 refresh_page_files_list_1();
-
                 get_object_status();
             }
-            //} else {
-            //    page_to(TJC_PAGE_DISK_DETECT_2);
-            //}
-            
             break;
         
         case TJC_PAGE_ABOUT_BTN_HOME:
@@ -2555,10 +2404,13 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             go_to_reset();
             break;
 
-        case TJC_PAGE_ABOUT_UPDATE:
-            page_to(TJC_PAGE_UPDATING);
-            disable_page_about_successed();
-            start_update();
+        case TJC_PAGE_ABOUT_OFFLINE_UPDATE:
+            if (detect_update())
+            {
+                page_to(TJC_PAGE_OFF_UPDATE_CHOOSE);
+            } else {
+                page_to(TJC_PAGE_NO_OFFLINE_FILES);
+            }
             break;
 
         case TJC_PAGE_ABOUT_OOBE:
@@ -2566,9 +2418,11 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             if (get_mks_oobe_enabled() == true) {
                 set_mks_oobe_enabled(false);
                 send_cmd_picc(tty_fd, "b1", "132");
+                send_cmd_vis(tty_fd, "b1", "0");
             } else {
                 set_mks_oobe_enabled(true);
                 send_cmd_picc(tty_fd, "b1", "367");
+                send_cmd_vis(tty_fd, "b1", "1");
             }
             break;
 
@@ -2582,108 +2436,12 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             print_log();
             break;
 
-        default:
-            break;
-        }
-        break;
-
-    //4.2.1 CLL 优化页面跳转
-    case TJC_PAGE_NO_UPDATA:
-        switch (widget_id)
-        {
-        //2023.4.25-1 隐藏开机引导
-        case TJC_PAGE_NO_UPDATA_S_BTN:
-            set_mks_oobe_enabled(true);
+        case TJC_PAGE_ABOUT_ONLINE_UPDATE:
+            btn_online_update_click_handler();
             break;
 
-        case TJC_PAGE_NO_UPDATA_BTN_FILE:
-
-            /*
-            page_to(TJC_PAGE_FILE_LIST_1);
-            printer_set_babystep();
-            page_files_pages = 0;
-            page_files_current_pages = 0;
-            page_files_folder_layers = 0;
-            page_files_previous_path = "";
-            page_files_root_path = DEFAULT_DIR;
-            page_files_path = "";
-            refresh_page_files(page_files_current_pages);
-            refresh_page_files_list_1();
-
-            get_object_status();
-            */
-            if (printer_webhooks_state != "shutdown" && printer_webhooks_state != "error") {
-            //if (detect_disk() == 0) {  //2023.5.8 CLL 去除U盘判断条件
-                page_to(TJC_PAGE_FILE_LIST_1);
-                // printer_set_babystep();
-                page_files_pages = 0;
-                page_files_current_pages = 0;
-                page_files_folder_layers = 0;
-                page_files_previous_path = "";
-                page_files_root_path = DEFAULT_DIR;
-                // page_files_path = "/sda1";
-                page_files_path = "";
-                refresh_page_files(page_files_current_pages);
-                refresh_page_files_list_1();
-
-                get_object_status();
-            }
-            //} else {
-            //    page_to(TJC_PAGE_DISK_DETECT_2);
-            //}
-            
-            break;
-
-        case TJC_PAGE_NO_UPDATA_BTN_HOME:
-            if (printer_webhooks_state != "shutdown" && printer_webhooks_state != "error") {
-                page_to(TJC_PAGE_MAIN);
-                get_object_status();
-            }
-            break;
-
-        case TJC_PAGE_NO_UPDATA_BTN_TOOL:
-            if (printer_webhooks_state != "shutdown" && printer_webhooks_state != "error") {
-                page_to(TJC_PAGE_MOVE);
-                get_object_status();
-            }
-            break;
-
-        case TJC_PAGE_NO_UPDATA_LANGUAGE:
-            if (printer_webhooks_state != "shutdown" && printer_webhooks_state != "error") {
-            page_to(TJC_PAGE_LANGUAGE);
-            get_object_status();
-            }
-            break;
-
-        case TJC_PAGE_NO_UPDATA_SERVICE:
-            page_to(TJC_PAGE_SERVICE);
-            get_object_status();
-            break;
-
-        case TJC_PAGE_NO_UPDATA_RESET:
-            go_to_reset();
-            get_object_status();
-            break;
-
-        case TJC_PAGE_NO_UPDATA_OOBE:
-            std::cout << "开机引导页面" << std::endl;
-            if (get_mks_oobe_enabled() == true) {
-                set_mks_oobe_enabled(false);
-                send_cmd_picc(tty_fd, "b1", "132");
-            } else {
-                set_mks_oobe_enabled(true);
-                send_cmd_picc(tty_fd, "b1", "367");
-            }
-            break;
-
-        //4.2.7 CLL 新增恢复出厂设置功能
-        case TJC_PAGE_NO_UPDATA_RESTORE:
-            page_to(TJC_PAGE_RESTORE_CONFIG);
-            break;
-
-        //4.2.10 CLL 新增输出日志功能
-        case TJC_PAGE_NO_UPDATA_PRINT_LOG:
-            print_log();
+        case TJC_PAGE_ABOUT_SLEEP:
+            go_to_about();
             break;
 
         default:
@@ -2769,12 +2527,8 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         {
         case TJC_PAGE_PRINT_FINISH_YES:
             finish_print();
-            // get_total_time();
             page_to(TJC_PAGE_MAIN);
             break;
-
-        // case TJC_PAGE_PRINT_FINISH_NO:
-            // break;
         }
         break;
 
@@ -2782,20 +2536,15 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         switch (widget_id)
         {
         case TJC_PAGE_STOP_PRINT_YES:
-            // if (start_to_printing == false) {
-                // start_to_printing = true;
-                //4.2.3 CLL 修复在打印暂停界面取消打印后仍显示加热
-                printer_idle_timeout_state = "Printing";
-                page_to(TJC_PAGE_STOPPING);
-                cancel_print();
-                // get_total_time();
-            // }
+            //4.2.3 CLL 修复在打印暂停界面取消打印后仍显示加热
+            printer_idle_timeout_state = "Printing";
+            page_to(TJC_PAGE_STOPPING);
+            cancel_print();
             break;
 
         case TJC_PAGE_STOP_PRINT_NO:
             //4.2.7 CLL 修复页面跳转bug
             page_to(previous_page_id);
-            //page_to(TJC_PAGE_PRINTING);
             break;
         }
         break;
@@ -3056,7 +2805,6 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             //4.2.3 CLL 修复WiFi刷新bug
             system("dhcpcd wlan0");
             mks_wpa_cli_close_connection();
-            go_to_network();
             scan_ssid_and_show();
             break;
 
@@ -3070,65 +2818,10 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
         {
         case TJC_PAGE_WIFI_FAILED_YES:
             page_to(TJC_PAGE_WIFI_LIST_2);
-            //4.2.3 CLL 修复WiFi刷新bug
-            //set_page_wifi_ssid_list(page_wifi_current_pages);
-            //get_wlan0_status();
-            //refresh_page_wifi_list();
 			mks_wpa_cli_close_connection();
-			go_to_network();
 			scan_ssid_and_show();
             break;
 
-        default:
-            break;
-        }
-        break;
-
-    case TJC_PAGE_X_CLEAR_MAX3:
-        switch (widget_id)
-        {
-        case TJC_PAGE_X_CLEAR_MAX3_YES:
-            page_to(TJC_PAGE_CLEAR_X_VIDEO);
-            break;
-
-        case TJC_PAGE_X_CLEAR_MAX3_NO:
-            do_not_x_clear();
-            page_to(TJC_PAGE_PREVIEW);
-            break;
-        
-        default:
-            break;
-        }
-        break;
-
-    case TJC_PAGE_X_CLEAR_PLUS3:
-        switch (widget_id)
-        {
-        case TJC_PAGE_X_CLEAR_PLUS3_YES:
-            page_to(TJC_PAGE_CLEAR_X_VIDEO);
-            break;
-
-        case TJC_PAGE_X_CLEAR_PLUS3_NO:
-            do_not_x_clear();
-            page_to(TJC_PAGE_PREVIEW);
-            break;
-        
-        default:
-            break;
-        }
-        break;
-
-    case TJC_PAGE_CLEAR_X_VIDEO:
-        switch (widget_id)
-        {
-        case TJC_PAGE_CLEAR_X_VIDEO_NEXT:
-            // 暂时用page_to(main)
-            // page_to(TJC_PAGE_MAIN);
-            do_x_clear();
-
-            go_to_syntony_move();       // 按照要求跳转完成后跳到共振补偿
-            break;
-        
         default:
             break;
         }
@@ -3584,6 +3277,446 @@ void tjc_event_clicked_handler(int page_id, int widget_id, int type_id) {
             break;
         }
         break;
+    
+    case TJC_PAGE_NETWORK_SET:
+        switch (widget_id)
+        {
+        case TJC_PAGE_NETWORK_SET_MOVE:
+            page_to(TJC_PAGE_MOVE);
+            break;
+
+        case TJC_PAGE_NETWORK_SET_FILAMENT:
+            page_to(TJC_PAGE_FILAMENT);
+            break;
+
+        case TJC_PAGE_NETWORK_SET_AUTO_LEVEL:
+            page_to(TJC_PAGE_LEVEL_MODE);
+            break;
+        
+        case TJC_PAGE_NETWORK_SET_BTN_FILE:
+            page_to(TJC_PAGE_FILE_LIST_1);
+            page_files_pages = 0;
+            page_files_current_pages = 0;
+            page_files_folder_layers = 0;
+            page_files_previous_path = "";
+            page_files_root_path = DEFAULT_DIR;
+            page_files_path = "";
+            refresh_page_files(page_files_current_pages);
+            refresh_page_files_list_1();
+            get_object_status();
+            break;
+
+        case TJC_PAGE_NETWORK_SET_BTN_HOME:
+            page_to(TJC_PAGE_MAIN);
+            break;
+
+        case TJC_PAGE_NETWORK_SET_BTN_SERVICE:
+            page_to(TJC_PAGE_LANGUAGE);
+            break;
+
+        case TJC_PAGE_NETWORK_SET_ETHERNET:
+            mksini_update("mks_ethernet", "enable", std::to_string(!sys_set.ethernet));
+            sys_set.ethernet = !sys_set.ethernet;
+            if (sys_set.ethernet == 0) {
+                send_cmd_txt(tty_fd, "t0", status_result.ip_address);
+                send_cmd_picc(tty_fd, "b0", "454");
+                send_cmd_picc2(tty_fd, "b0", "453");
+                send_cmd_pic(tty_fd, "b[0]", "453");
+            } else {
+                std::string local_ip = get_eth0_ip();
+                if (local_ip.find(":") != -1)
+                {
+                    send_cmd_txt(tty_fd, "t0", "");
+                } else {
+                    send_cmd_txt(tty_fd, "t0", local_ip);
+                }
+                send_cmd_picc(tty_fd, "b0", "473");
+                send_cmd_picc2(tty_fd, "b0", "472");
+                send_cmd_pic(tty_fd, "b[0]", "472");
+            }
+            break;
+
+        case TJC_PAGE_NETWORK_SET_REFRESH:
+            refresh_device_code();
+            break;
+
+        case TJC_PAGE_NETWORK_SET_WIFI_LINK:
+            go_to_network();
+            break;
+
+        case TJC_PAGE_NETWORK_SET_SERVER:
+            go_to_server_set(0);
+            break;
+
+        case TJC_PAGE_NETWORK_SET_QIDI_LINK:
+            if(user_token ==""){
+                page_to(TJC_PAGE_QIDI_LINK);
+                send_cmd_vis(tty_fd, "gm0", "1");
+            }else{
+                page_to(TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS);
+                mksini_load();
+                tmp_username = mksini_getstring("app", "username", "");
+                mksini_free();
+                send_cmd_txt(tty_fd,"t1",tmp_username);
+                login_successed_page();
+            }
+            break;
+
+        case TJC_PAGE_NETWORK_SET_BTN_LAN:
+            if (sys_set.internet_enabled)
+            {
+                send_cmd_vis(tty_fd, "gm0", "0");
+                send_cmd_tsw(tty_fd, "b1", "0");
+                send_cmd_tsw(tty_fd, "b3", "0");
+                send_cmd_tsw(tty_fd, "b4", "0");
+                send_cmd_picc(tty_fd, "b1", "454");
+                send_cmd_picc(tty_fd, "b3", "454");
+                send_cmd_picc(tty_fd, "b4", "454");
+                send_cmd_picc(tty_fd, "b5", "456");
+                send_cmd_picc2(tty_fd, "b5", "455");
+                send_cmd_pco(tty_fd, "b3", "33808");
+                send_cmd_pco(tty_fd, "b4", "33808");
+                send_cmd_pco(tty_fd, "t1", "33808");
+                send_cmd_pco(tty_fd, "t2", "33808");
+                mksini_update("app_connection", "method", "false");
+                sys_set.internet_enabled = false;
+                system("systemctl stop QIDILink-client");
+            }
+            else{
+                send_cmd_tsw(tty_fd, "b1", "1");
+                send_cmd_tsw(tty_fd, "b3", "1");
+                send_cmd_tsw(tty_fd, "b4", "1");
+                send_cmd_picc(tty_fd, "b1", "453");
+                send_cmd_picc(tty_fd, "b3", "453");
+                send_cmd_picc(tty_fd, "b4", "453");
+                send_cmd_picc(tty_fd, "b5", "455");
+                send_cmd_picc2(tty_fd, "b5", "454");
+                send_cmd_pco(tty_fd, "b3", "65535");
+                send_cmd_pco(tty_fd, "b4", "65535");
+                send_cmd_pco(tty_fd, "t1", "65535");
+                send_cmd_pco(tty_fd, "t2", "65535");
+                mksini_update("app_connection", "method", "true");
+                sys_set.internet_enabled = true;
+                system("systemctl restart QIDILink-client");
+            }
+            break;
+        
+        default:
+            break;
+        }
+        break;
+
+    case TJC_PAGE_SERVER_SET:
+        switch (widget_id)
+        {
+        case TJC_PAGE_SERVER_SET_MOVE:
+            page_to(TJC_PAGE_MOVE);
+            break;
+
+        case TJC_PAGE_SERVER_SET_FILAMENT:
+            page_to(TJC_PAGE_FILAMENT);
+            break;
+
+        case TJC_PAGE_SERVER_SET_AUTO_LEVEL:
+            page_to(TJC_PAGE_LEVEL_MODE);
+            break;
+        
+        case TJC_PAGE_SERVER_SET_BTN_FILE:
+            page_to(TJC_PAGE_FILE_LIST_1);
+            page_files_pages = 0;
+            page_files_current_pages = 0;
+            page_files_folder_layers = 0;
+            page_files_previous_path = "";
+            page_files_root_path = DEFAULT_DIR;
+            page_files_path = "";
+            refresh_page_files(page_files_current_pages);
+            refresh_page_files_list_1();
+            get_object_status();
+            break;
+
+        case TJC_PAGE_SERVER_SET_BTN_HOME:
+            page_to(TJC_PAGE_MAIN);
+            break;
+
+        case TJC_PAGE_SERVER_SET_BTN_SERVICE:
+            page_to(TJC_PAGE_LANGUAGE);
+            break;
+
+        case TJC_PAGE_SERVER_SET_BACK:
+            page_to(TJC_PAGE_NETWORK_SET);
+            refresh_lan_model_frpc();
+            break;
+        
+        case TJC_PAGE_SERVER_SET_REFRESH:
+            go_to_server_set(0);
+            break;
+
+        case TJC_PAGE_SERVER_SET_1:
+            page_to(TJC_PAGE_SEARCH_SERVER);
+            if (current_server_page * 5 + 1 <= total_server_count) {
+                update_server(current_server_page * 5 + 1);
+            }
+            page_to(TJC_PAGE_SERVER_SET);
+            break;
+
+        case TJC_PAGE_SERVER_SET_2:
+            page_to(TJC_PAGE_SEARCH_SERVER);
+            if (current_server_page * 5 + 2 <= total_server_count) {
+                update_server(current_server_page * 5 + 2);
+            }
+            page_to(TJC_PAGE_SERVER_SET);
+            break;
+
+        case TJC_PAGE_SERVER_SET_3:
+            page_to(TJC_PAGE_SEARCH_SERVER);
+            if (current_server_page * 5 + 3 <= total_server_count) {
+                update_server(current_server_page * 5 + 3);
+            }
+            page_to(TJC_PAGE_SERVER_SET);
+            break;
+
+        case TJC_PAGE_SERVER_SET_4:
+            page_to(TJC_PAGE_SEARCH_SERVER);
+            if (current_server_page * 5 + 4 <= total_server_count) {
+                update_server(current_server_page * 5 + 4);
+            }
+            page_to(TJC_PAGE_SERVER_SET);
+            break;
+
+        case TJC_PAGE_SERVER_SET_5:
+            page_to(TJC_PAGE_SEARCH_SERVER);
+            if (current_server_page * 5 + 5 <= total_server_count) {
+                update_server(current_server_page * 5 + 5);
+            }
+            page_to(TJC_PAGE_SERVER_SET);
+            break;
+        
+        default:
+            break;
+        }
+        break;
+
+    case TJC_PAGE_ONLINE_UPDATE:
+        switch (widget_id)
+        {
+        case TJC_PAGE_ONLINE_UPDATE_NEXT:
+            btn_update_click_handler();
+            // online_update();
+            break;
+        
+        case TJC_PAGE_ONLINE_UPDATE_BACK:
+            go_to_about();
+            break;
+        
+        default:
+            break;
+        }
+        break;
+
+    case TJC_PAGE_QIDI_LINK:
+        switch (widget_id)
+        {
+        case TJC_PAGE_QIDI_LINK_MOVE:
+            page_to(TJC_PAGE_MOVE);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_FILAMENT:
+            page_to(TJC_PAGE_FILAMENT);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_AUTO_LEVEL:
+            page_to(TJC_PAGE_LEVEL_MODE);
+            break;
+        
+        case TJC_PAGE_QIDI_LINK_BTN_FILE:
+            page_to(TJC_PAGE_FILE_LIST_1);
+            page_files_pages = 0;
+            page_files_current_pages = 0;
+            page_files_folder_layers = 0;
+            page_files_previous_path = "";
+            page_files_root_path = DEFAULT_DIR;
+            page_files_path = "";
+            refresh_page_files(page_files_current_pages);
+            refresh_page_files_list_1();
+            get_object_status();
+            break;
+
+        case TJC_PAGE_QIDI_LINK_BTN_HOME:
+            page_to(TJC_PAGE_MAIN);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_BTN_SERVICE:
+            page_to(TJC_PAGE_LANGUAGE);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_BACK:
+            page_to(TJC_PAGE_NETWORK_SET);
+            refresh_lan_model_frpc();
+            break;
+
+        default:
+            break;
+        }
+        break;
+
+    case TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS:
+        switch (widget_id)
+        {
+
+        case TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS_MOVE:
+            page_to(TJC_PAGE_MOVE);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS_FILAMENT:
+            page_to(TJC_PAGE_FILAMENT);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS_AUTO_LEVEL:
+            page_to(TJC_PAGE_LEVEL_MODE);
+            break;
+        
+        case TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS_FILE:
+            page_to(TJC_PAGE_FILE_LIST_1);
+            page_files_pages = 0;
+            page_files_current_pages = 0;
+            page_files_folder_layers = 0;
+            page_files_previous_path = "";
+            page_files_root_path = DEFAULT_DIR;
+            page_files_path = "";
+            refresh_page_files(page_files_current_pages);
+            refresh_page_files_list_1();
+            get_object_status();
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS_HOME:
+            page_to(TJC_PAGE_MAIN);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS_SERVICE:
+            page_to(TJC_PAGE_LANGUAGE);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS_BACK:
+            page_to(TJC_PAGE_NETWORK_SET);
+            refresh_lan_model_frpc();
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS_OUT:
+            // TODO：退出QIDI Link 事件
+            page_to(TJC_PAGE_QIDI_LINK_LOG_OUT);
+            app_cli.set_bind_status("UNBOUND");
+            break;
+        
+        default:
+            break;
+        }
+        break;
+
+    case TJC_PAGE_QIDI_LINK_LOG_OUT:
+        switch (widget_id)
+        {
+        case TJC_PAGE_QIDI_LINK_LOG_OUT_CANCEL:
+            mksini_load();
+            tmp_username = mksini_getstring("app", "username", "");
+            mksini_free();
+            page_to(TJC_PAGE_QIDI_LINK_LOGIN_SUCCESS);
+            send_cmd_txt(tty_fd, "t1", tmp_username);
+            login_successed_page();
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOG_OUT_CONFIRM:
+            page_to(TJC_PAGE_QIDI_LINK);
+            send_cmd_vis(tty_fd, "gm0", "1");
+            std::cout << "logout" << std::endl;
+            user_token = "";
+            mksini_load();
+            mksini_set("app", "token", user_token);
+            mksini_set("app", "username", "");
+            mksini_set("app", "avatar", "");
+            mksini_save();
+            mksini_free();
+            system("systemctl stop QIDILink-client");
+            break; 
+
+        default:
+            break;
+        }
+        break;
+
+    case TJC_PAGE_QIDI_LINK_LOG_FAIL:
+        switch (widget_id)
+        {
+
+        case TJC_PAGE_QIDI_LINK_LOG_FAIL_MOVE:
+            page_to(TJC_PAGE_MOVE);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOG_FAIL_FILAMENT:
+            page_to(TJC_PAGE_FILAMENT);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOG_FAIL_AUTO_LEVEL:
+            page_to(TJC_PAGE_LEVEL_MODE);
+            break;
+        
+        case TJC_PAGE_QIDI_LINK_LOG_FAIL_FILE:
+            page_to(TJC_PAGE_FILE_LIST_1);
+            page_files_pages = 0;
+            page_files_current_pages = 0;
+            page_files_folder_layers = 0;
+            page_files_previous_path = "";
+            page_files_root_path = DEFAULT_DIR;
+            page_files_path = "";
+            refresh_page_files(page_files_current_pages);
+            refresh_page_files_list_1();
+            get_object_status();
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOG_FAIL_HOME:
+            page_to(TJC_PAGE_MAIN);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOG_FAIL_SERVICE:
+            page_to(TJC_PAGE_LANGUAGE);
+            break;
+
+        case TJC_PAGE_QIDI_LINK_LOG_FAIL_BACK:
+            page_to(TJC_PAGE_QIDI_LINK);
+            break;
+        
+        default:
+            break;
+        }
+        break;
+    
+    case TJC_PAGE_OFF_UPDATE_CHOOSE:
+        switch (widget_id)
+        {
+        case TJC_PAGE_OFF_UPDATE_CHOOSE_CONFIRM:
+            page_to(TJC_PAGE_OFFLINE_UPDATING);
+            start_update();
+            break;
+        
+        case TJC_PAGE_OFF_UPDATE_CHOOSE_CANCLE:
+            go_to_about();
+            break;
+        
+        default:
+            break;
+        }
+        break;
+
+    case TJC_PAGE_NO_OFFLINE_FILES:
+        switch (widget_id)
+        {
+        case TJC_PAGE_NO_OFFLINE_FILES_CONFIRM:
+            go_to_about();
+            break;
+
+        default:
+            break;
+        }
+        break;
 
 
     default:
@@ -3746,27 +3879,9 @@ void tjc_event_setted_handler(int page_id, int widget_id, unsigned char first, u
             break;
 
         case TJC_PAGE_FILAMENT_BTN_FAN_1:
-            /*
-            std::cout << "********************" << number << std::endl;
-            if (number > 100) {
-                number = 100;
-            }
-            printing_keyboard_enabled = false;
-            set_fan0(number);
-            page_to(TJC_PAGE_FILAMENT);
-            */
             break;
 
         case TJC_PAGE_FILAMENT_BTN_FAN_2:
-            /*
-            std::cout << "********************" << number << std::endl;
-            if (number > 100) {
-                number = 100;
-            }
-            printing_keyboard_enabled = false;
-            set_fan2(number);
-            page_to(TJC_PAGE_FILAMENT);
-            */
             break;
 
         case TJC_PAGE_FILAMENT_BTN_FILAMENT_SENSOR:

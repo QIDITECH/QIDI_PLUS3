@@ -16,7 +16,7 @@ void refresh_page_pid_finish();
 void refresh_page_saving();
 void refresh_page_wifi_list_2();
 void refresh_page_syntony_finish();
-void refresh_page_mks_test();
+// void refresh_page_mks_test();
 void refresh_page_no_updata();
 void refresh_page_about();
 void refresh_page_auto_level();
@@ -30,11 +30,9 @@ void refresh_page_print_filament();
 void refresh_page_auto_finish();
 void refresh_page_manual_finish();
 void refresh_page_auto_move();
-void refresh_page_manual_move();
 void refresh_page_leveling_init();
 void refresh_page_move();
 void refresh_page_filament();
-void refresh_page_print_finish();
 void refresh_page_offset(float intern_zoffset);
 void refresh_page_printing_zoffset();
 void refresh_page_printing();
@@ -84,7 +82,7 @@ void sdcard_reset_file();
 void set_auto_level_dist(float dist);
 void pre_auto_level_init();
 void start_auto_level();
-void start_manual_level();
+// void start_manual_level();
 void finish_auto_level();
 void finish_manual_level();
 void pre_manual_level_init();
@@ -264,5 +262,35 @@ void send_gcode(std::string command);
 void refresh_page_loading();
 
 void refresh_page_pre_heating_2();
+
+void go_to_showqr();
+
+void refresh_files_list_picture(std::string path, int pixel, int i);
+
+void go_to_server_set(int n);
+
+void get_mks_selected_server();
+
+void update_server(int choice);
+
+void refresh_page_server_set();
+
+void get_mks_connection_method();
+
+void set_mks_connection_method(int target);
+
+struct Server_config
+{
+    std::string address;
+    std::string name;
+};
+
+std::string run_python_code(const char* cmd);
+
+void refresh_page_show_ip();
+void refresh_device_code();
+void login_successed_page();
+
+void refresh_lan_model_frpc();
 
 #endif

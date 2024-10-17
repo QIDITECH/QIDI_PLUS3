@@ -20,4 +20,6 @@ void get_parenet_dir_files_list();
 // void get_file_estimated_time(std::string filename, int *estimated_time);
 void parse_file_estimated_time_send(nlohmann::json response);
 
+int output_imgdata(std::string thumbpath, int size);
+
 #endif

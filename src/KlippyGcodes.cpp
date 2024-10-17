@@ -28,18 +28,18 @@ std::string set_fan0_speed(int speed) {
     // std::string speed_temp = std::to_string(int(float(int(speed)) / 100 * 255));
     std::string speed_temp = std::to_string(float((float)(speed * 255) / 100));
     std::cout << speed_temp << std::endl;
-    return "SET_PIN PIN=fan0 VALUE=" + speed_temp;
+    return "M106 P0 S" + speed_temp;
 }
 
 std::string set_fan2_speed(int speed) {
     std::string speed_temp = std::to_string(float((float)(speed * 255) / 100));
-    return "SET_PIN PIN=fan2 VALUE=" + speed_temp;
+    return "M106 P2 S" + speed_temp;
 }
 
 //2.1.2 新增fan3
 std::string set_fan3_speed(int speed) {
     std::string speed_temp = std::to_string(float((float)(speed*255) / 100));
-    return "SET_PIN PIN=fan3 VALUE=" +speed_temp;
+    return "M106 P3 S" +speed_temp;
 }
 
 /* Xindi */
